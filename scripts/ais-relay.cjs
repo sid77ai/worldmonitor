@@ -7560,6 +7560,47 @@ function getTankerReportsSnapshot(bbox) {
   return arr.slice(0, MAX_TANKER_REPORTS_PER_RESPONSE);
 }
 
+const MAX_COMMERCIAL_VESSELS_PER_RESPONSE = 200;
+
+function normalizeVesselQuery(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((term) => term.trim().toUpperCase())
+    .filter((term) => term.length >= 3)
+    .slice(0, 8);
+}
+
+function inferCommercialOperator(name) {
+  const n = String(name || '').toUpperCase();
+  if (n.includes('MAERSK')) return 'Maersk';
+  if (n.includes('HAPAG') || n.includes('LLOYD')) return 'Hapag-Lloyd';
+  return '';
+}
+
+function getCommercialVesselReportsSnapshot(queryTerms, limit) {
+  const terms = queryTerms.length > 0 ? queryTerms : ['MAERSK', 'HAPAG', 'LLOYD'];
+  const max = Math.max(1, Math.min(Number(limit) || 80, MAX_COMMERCIAL_VESSELS_PER_RESPONSE));
+  return Array.from(vessels.values())
+    .filter((v) => {
+      const name = String(v.name || '').toUpperCase();
+      return name && terms.some((term) => name.includes(term));
+    })
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, max)
+    .map((v) => ({
+      mmsi: v.mmsi,
+      name: v.name || '',
+      operator: inferCommercialOperator(v.name),
+      lat: v.lat,
+      lon: v.lon,
+      shipType: Number.isFinite(Number(v.shipType)) ? Number(v.shipType) : 0,
+      heading: Number.isFinite(Number(v.heading)) ? Number(v.heading) : 0,
+      speed: Number.isFinite(Number(v.speed)) ? Number(v.speed) : 0,
+      course: Number.isFinite(Number(v.course)) ? Number(v.course) : 0,
+      timestamp: v.timestamp,
+    }));
+}
+
 function buildSnapshot() {
   const now = Date.now();
   if (lastSnapshot && now - lastSnapshotAt < Math.floor(SNAPSHOT_INTERVAL_MS / 2)) {
@@ -9365,6 +9406,7 @@ const ALLOWED_ORIGINS = [
   'https://worldmonitor.app',
   'https://tech.worldmonitor.app',
   'https://finance.worldmonitor.app',
+  'http://localhost:3000',   // Codex/local dev alternate port
   'http://localhost:5173',   // Vite dev
   'http://localhost:5174',   // Vite dev alt port
   'http://localhost:4173',   // Vite preview
@@ -9527,6 +9569,28 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
     }, JSON.stringify(getRelayRollingMetrics()));
+  } else if (pathname.startsWith('/ais/vessels')) {
+    connectUpstream();
+    buildSnapshot();
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const queryTerms = normalizeVesselQuery(url.searchParams.get('q'));
+    const limit = Number(url.searchParams.get('limit') || 80);
+    const reports = getCommercialVesselReportsSnapshot(queryTerms, limit);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      query: queryTerms.length > 0 ? queryTerms : ['MAERSK', 'HAPAG', 'LLOYD'],
+      status: {
+        connected: upstreamSocket?.readyState === WebSocket.OPEN,
+        vessels: vessels.size,
+        messages: messageCount,
+      },
+      vessels: reports,
+    };
+    return sendCompressed(req, res, 200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=5',
+      'CDN-Cache-Control': 'public, max-age=10',
+    }, JSON.stringify(payload));
   } else if (pathname.startsWith('/ais/snapshot')) {
     // Aggregated AIS snapshot for server-side fanout — serve pre-serialized + pre-gzipped
     connectUpstream();

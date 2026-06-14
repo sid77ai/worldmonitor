@@ -128,6 +128,7 @@ import { fetchClimateAnomalies } from '@/services/climate';
 import { fetchSecurityAdvisories } from '@/services/security-advisories';
 import { fetchThermalEscalations } from '@/services/thermal-escalation';
 import { fetchCrossSourceSignals } from '@/services/cross-source-signals';
+import { fetchCommercialVesselWatch, type CommercialVesselReport, type CommercialVesselWatch } from '@/services/commercial-vessels';
 import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { fetchOrefAlerts, startOrefPolling, stopOrefPolling, onOrefAlertsUpdate } from '@/services/oref-alerts';
 import { getResilienceRanking } from '@/services/resilience';
@@ -212,6 +213,85 @@ import { getTopActiveGeoHubs } from '@/services/geo-activity';
 import { getTopActiveHubs } from '@/services/tech-activity';
 import type { GeoHubsPanel } from '@/components/GeoHubsPanel';
 import type { TechHubsPanel } from '@/components/TechHubsPanel';
+
+const AIS_OPERATOR_WATCH_ID = 'ais-operator-watch';
+
+function formatAisTime(timestamp: number): string {
+  const ms = Number(timestamp);
+  if (!Number.isFinite(ms) || ms <= 0) return 'unknown';
+  const delta = Math.max(0, Date.now() - ms);
+  if (delta < 60_000) return 'just now';
+  if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m ago`;
+  return `${Math.round(delta / 3_600_000)}h ago`;
+}
+
+function setText(parent: HTMLElement, className: string, value: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = className;
+  el.textContent = value;
+  parent.appendChild(el);
+  return el;
+}
+
+function renderAisOperatorWatch(watch: CommercialVesselWatch | null): void {
+  if (typeof document === 'undefined') return;
+  let panel = document.getElementById(AIS_OPERATOR_WATCH_ID);
+  if (!watch) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.id = AIS_OPERATOR_WATCH_ID;
+    panel.className = 'ais-operator-watch';
+    document.body.appendChild(panel);
+  }
+
+  panel.replaceChildren();
+  const header = document.createElement('div');
+  header.className = 'ais-operator-watch__header';
+  const title = document.createElement('div');
+  title.className = 'ais-operator-watch__title';
+  title.textContent = 'AIS vessel watch';
+  const meta = document.createElement('div');
+  meta.className = 'ais-operator-watch__meta';
+  meta.textContent = `${watch.vessels.length} named matches / ${watch.status.vessels.toLocaleString()} live vessels`;
+  header.append(title, meta);
+  panel.appendChild(header);
+
+  if (watch.vessels.length === 0) {
+    setText(panel, 'ais-operator-watch__empty', 'No Maersk or Hapag-Lloyd vessel names in the current AIS window.');
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'ais-operator-watch__list';
+  for (const vessel of watch.vessels.slice(0, 8)) {
+    list.appendChild(renderVesselRow(vessel));
+  }
+  panel.appendChild(list);
+}
+
+function renderVesselRow(vessel: CommercialVesselReport): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'ais-operator-watch__row';
+  const operator = vessel.operator || 'Commercial';
+  row.dataset.operator = operator.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+  const main = document.createElement('div');
+  main.className = 'ais-operator-watch__main';
+  setText(main, 'ais-operator-watch__name', vessel.name || vessel.mmsi);
+  setText(main, 'ais-operator-watch__sub', `${operator} · MMSI ${vessel.mmsi}`);
+
+  const detail = document.createElement('div');
+  detail.className = 'ais-operator-watch__detail';
+  setText(detail, 'ais-operator-watch__speed', `${Number(vessel.speed || 0).toFixed(1)} kn`);
+  setText(detail, 'ais-operator-watch__coords', `${vessel.lat.toFixed(2)}, ${vessel.lon.toFixed(2)}`);
+  setText(detail, 'ais-operator-watch__seen', formatAisTime(vessel.timestamp));
+
+  row.append(main, detail);
+  return row;
+}
 
 const PROTO_TO_CLIENT_LEVEL: Record<ProtoThreatLevel, ClientThreatLevel> = {
   THREAT_LEVEL_UNSPECIFIED: 'info',
@@ -2578,8 +2658,24 @@ export class DataLoaderManager implements AppModule {
       if (hasData) {
         dataFreshness.recordUpdate('ais', shippingCount);
       }
+      if (aisStatus.connected) {
+        try {
+          const vesselWatch = await fetchCommercialVesselWatch('maersk,hapag,lloyd', { limit: 80 });
+          renderAisOperatorWatch(vesselWatch);
+        } catch {
+          renderAisOperatorWatch({
+            timestamp: new Date().toISOString(),
+            query: ['maersk', 'hapag', 'lloyd'],
+            status: aisStatus,
+            vessels: [],
+          });
+        }
+      } else {
+        renderAisOperatorWatch(null);
+      }
     } catch (error) {
       this.ctx.map?.setLayerReady('ais', false);
+      renderAisOperatorWatch(null);
       this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: String(error) });
       this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });
       dataFreshness.recordError('ais', String(error));
