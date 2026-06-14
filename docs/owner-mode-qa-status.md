@@ -96,13 +96,17 @@ Commands run:
 
 ```bash
 npm run typecheck
+npm run lint
 npm run test:e2e:runtime
+npm run build
 ```
 
 Results:
 
 - `npm run typecheck`: passed.
-- `npm run test:e2e:runtime`: blocked before app assertions because Playwright's Chromium executable is not installed in `/Users/sid/Library/Caches/ms-playwright`. Install with `npx playwright install chromium`, then rerun the suite.
+- `npm run lint`: passed with existing non-blocking warnings.
+- `npm run test:e2e:runtime`: passed, 12 tests.
+- `npm run build`: passed.
 - In-app browser rendered QA: passed for owner branding and Pro/upgrade removal.
 - Settings modal QA: passed for Pro/upgrade removal; visible tabs were Settings, Panels, Sources, Notifications, and API Keys.
 
@@ -132,11 +136,10 @@ Visible panel nav chips: All, Core, Intelligence, Regional News, Markets & Finan
 - Some API-backed panels reported JSON parse failures when the local route returned a module/dev fallback instead of JSON. Treat those as backend/API wiring gaps, not UI branding defects.
 - PizzINT reported no local data.
 - Live webcam media can be unavailable from the third-party provider.
-- Playwright browser QA could not complete until the local Playwright Chromium cache is installed.
 
 ## Next QA Targets
 
 - Run the Docker stack and seeders with real secrets, then repeat dashboard QA.
 - Test every enabled panel with fresh Redis data and record which panels still fail.
-- Install Playwright Chromium with `npx playwright install chromium`, then rerun `npm run test:e2e:runtime`.
+- Re-run `npm run test:e2e:runtime` after the backend data stack is live.
 - Decide whether to keep upstream docs as historical/upstream references or create a fully Sid-branded docs site pass.
