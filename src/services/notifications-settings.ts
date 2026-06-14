@@ -20,6 +20,7 @@ import {
 } from '@/services/notification-channels';
 import { getCurrentClerkUser } from '@/services/clerk';
 import { hasTier } from '@/services/entitlements';
+import { hasPremiumAccess } from '@/services/panel-gating';
 import { SITE_VARIANT } from '@/config/variant';
 import { mountCountryChipPicker, loadFollowedCountriesSafe, type CountryChipPickerHandle } from '@/utils/country-chip-picker';
 import { setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
@@ -68,7 +69,7 @@ function appendNotificationError(rowEl: HTMLElement, message: string): void {
 }
 
 export function renderNotificationsSettings(host: NotificationsSettingsHost): NotificationsSettingsResult {
-  const isPro = !!host.isSignedIn && hasTier(1);
+  const isPro = hasPremiumAccess() || (!!host.isSignedIn && hasTier(1));
   const preselectCountry = normalizePreselectCountry(host.preselectCountry);
 
   let html = '';
@@ -79,8 +80,7 @@ export function renderNotificationsSettings(host: NotificationsSettingsHost): No
     html += `</div>`;
   } else {
     html += `<div class="wm-pref-group-content wm-notif-tab-content">`;
-    html += `<div class="ai-flow-toggle-desc">Get real-time intelligence alerts delivered to Telegram, Slack, Discord, and Email with configurable sensitivity, quiet hours, and digest scheduling.</div>`;
-    html += `<button type="button" class="panel-locked-cta" id="usNotifUpgradeBtn">Upgrade to Pro</button>`;
+    html += `<div class="ai-flow-toggle-desc">Notification delivery is available in owner mode. Add notification service credentials in settings to enable channels.</div>`;
     html += `</div>`;
   }
 

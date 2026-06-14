@@ -27,6 +27,9 @@ export enum PanelGateReason {
  * signals that aren't already covered by isProUser.
  */
 export function hasPremiumAccess(authState?: AuthSession): boolean {
+  // This self-hosted build is intentionally owner-operated: remove public Pro
+  // upsells and keep every dashboard surface available locally.
+  if (import.meta.env.VITE_DISABLE_PRO_UPSELLS !== 'false') return true;
   if (getSecretState('WORLDMONITOR_API_KEY').present) return true;
   if (isProUser()) return true;
   if (authState?.user?.role === 'pro') return true;
