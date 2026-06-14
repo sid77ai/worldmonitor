@@ -1601,12 +1601,14 @@ export class PanelLayoutManager implements AppModule {
     const proLabel = document.createElement('span');
     proLabel.className = 'add-panel-block-label';
     proLabel.textContent = t('widgets.createInteractive');
-    const proBadge = document.createElement('span');
-    proBadge.className = 'widget-pro-badge';
-    proBadge.textContent = t('widgets.proBadge');
     proBlock.appendChild(proIcon);
     proBlock.appendChild(proLabel);
-    proBlock.appendChild(proBadge);
+    if (import.meta.env.VITE_DISABLE_PRO_UPSELLS === 'false') {
+      const proBadge = document.createElement('span');
+      proBadge.className = 'widget-pro-badge';
+      proBadge.textContent = t('widgets.proBadge');
+      proBlock.appendChild(proBadge);
+    }
     proBlock.addEventListener('click', () => {
       openWidgetChatModal({
         mode: 'create',
@@ -1625,12 +1627,14 @@ export class PanelLayoutManager implements AppModule {
     const mcpLabel = document.createElement('span');
     mcpLabel.className = 'add-panel-block-label';
     mcpLabel.textContent = t('mcp.connectPanel');
-    const mcpBadge = document.createElement('span');
-    mcpBadge.className = 'widget-pro-badge';
-    mcpBadge.textContent = t('widgets.proBadge');
     mcpBlock.appendChild(mcpIcon);
     mcpBlock.appendChild(mcpLabel);
-    mcpBlock.appendChild(mcpBadge);
+    if (import.meta.env.VITE_DISABLE_PRO_UPSELLS === 'false') {
+      const mcpBadge = document.createElement('span');
+      mcpBadge.className = 'widget-pro-badge';
+      mcpBadge.textContent = t('widgets.proBadge');
+      mcpBlock.appendChild(mcpBadge);
+    }
     mcpBlock.addEventListener('click', () => {
       openMcpConnectModal({
         onComplete: (spec) => this.addMcpPanel(spec),
