@@ -259,6 +259,30 @@ const emptyHapiFallback: GetHumanitarianSummaryResponse = { summary: undefined }
 const emptyHapiBatchFallback: GetHumanitarianSummaryBatchResponse = { results: {}, fetched: 0, requested: 0 };
 const hapiBatchBreaker = createCircuitBreaker<GetHumanitarianSummaryBatchResponse>({ name: 'HDX HAPI Batch', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 
+async function fetchHapiSummariesIndividually(): Promise<GetHumanitarianSummaryBatchResponse> {
+  const HAPI_CONCURRENT = 5;
+  const allFallback: Array<{ iso2: string; r: GetHumanitarianSummaryResponse }> = [];
+  for (let i = 0; i < HAPI_COUNTRY_CODES.length; i += HAPI_CONCURRENT) {
+    const batch = HAPI_COUNTRY_CODES.slice(i, i + HAPI_CONCURRENT);
+    const results = await Promise.allSettled(
+      batch.map(async (iso2) => {
+        const r = await getHapiBreaker(iso2).execute(async () => {
+          return client.getHumanitarianSummary({ countryCode: iso2 });
+        }, emptyHapiFallback);
+        return { iso2, r };
+      }),
+    );
+    for (const result of results) {
+      if (result.status === 'fulfilled') allFallback.push(result.value);
+    }
+  }
+  const fallbackResults: Record<string, ProtoHumanSummary> = {};
+  for (const { iso2, r } of allFallback) {
+    if (r.summary) fallbackResults[iso2] = r.summary;
+  }
+  return { results: fallbackResults, fetched: Object.keys(fallbackResults).length, requested: HAPI_COUNTRY_CODES.length };
+}
+
 // ---- Exported Functions ----
 
 export async function fetchConflictEvents(): Promise<ConflictData> {
@@ -301,40 +325,24 @@ export async function fetchHapiSummary(): Promise<Map<string, HapiConflictSummar
 
   const resp = await hapiBatchBreaker.execute(async () => {
     try {
-      return await client.getHumanitarianSummaryBatch(
+      const batchResp = await client.getHumanitarianSummaryBatch(
         { countryCodes: [...HAPI_COUNTRY_CODES] },
         { signal: AbortSignal.timeout(60_000) },
       );
+      if (!batchResp.results) {
+        return fetchHapiSummariesIndividually();
+      }
+      return batchResp;
     } catch (err: unknown) {
       // 404 deploy-skew fallback: batch endpoint not yet deployed, use per-item calls
       if (err instanceof ApiError && err.statusCode === 404) {
-        const HAPI_CONCURRENT = 5;
-        const allFallback: Array<{ iso2: string; r: GetHumanitarianSummaryResponse }> = [];
-        for (let i = 0; i < HAPI_COUNTRY_CODES.length; i += HAPI_CONCURRENT) {
-          const batch = HAPI_COUNTRY_CODES.slice(i, i + HAPI_CONCURRENT);
-          const results = await Promise.allSettled(
-            batch.map(async (iso2) => {
-              const r = await getHapiBreaker(iso2).execute(async () => {
-                return client.getHumanitarianSummary({ countryCode: iso2 });
-              }, emptyHapiFallback);
-              return { iso2, r };
-            }),
-          );
-          for (const result of results) {
-            if (result.status === 'fulfilled') allFallback.push(result.value);
-          }
-        }
-        const fallbackResults: Record<string, ProtoHumanSummary> = {};
-        for (const { iso2, r } of allFallback) {
-          if (r.summary) fallbackResults[iso2] = r.summary;
-        }
-        return { results: fallbackResults, fetched: Object.keys(fallbackResults).length, requested: HAPI_COUNTRY_CODES.length };
+        return fetchHapiSummariesIndividually();
       }
       throw err;
     }
   }, emptyHapiBatchFallback, { shouldCache: (r) => r.fetched > 0 });
 
-  for (const [cc, summary] of Object.entries(resp.results)) {
+  for (const [cc, summary] of Object.entries(resp.results ?? {})) {
     byCode.set(cc, toHapiSummary(summary));
   }
 

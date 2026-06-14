@@ -562,10 +562,12 @@ test.describe('desktop runtime routing guardrails', () => {
         calls.push(url);
         const parsed = new URL(url);
 
-        // Sebuf proto: POST /api/market/v1/list-market-quotes
+        // Sebuf proto: GET /api/market/v1/list-market-quotes?symbols=...
         if (parsed.pathname === '/api/market/v1/list-market-quotes') {
           const body = init?.body ? JSON.parse(String(init.body)) : {};
-          const symbols: string[] = body.symbols || [];
+          const symbols: string[] = parsed.searchParams.getAll('symbols').length > 0
+            ? parsed.searchParams.getAll('symbols')
+            : body.symbols || [];
           const quotes = symbols
             .filter((s: string) => yahooOnly.has(s))
             .map((s: string) => {
@@ -579,7 +581,19 @@ test.describe('desktop runtime routing guardrails', () => {
           });
         }
 
-        // Sebuf proto: POST /api/market/v1/list-crypto-quotes
+        // Sebuf proto: GET /api/market/v1/list-commodity-quotes?symbols=...
+        if (parsed.pathname === '/api/market/v1/list-commodity-quotes') {
+          const symbols = parsed.searchParams.getAll('symbols');
+          const quotes = symbols
+            .filter((s: string) => yahooOnly.has(s))
+            .map((s: string) => {
+              const base = s.length * 100;
+              return { symbol: s, name: s, display: s, price: base + 1, change: ((base + 1) - base) / base * 100, sparkline: [base - 2, base - 1, base, base + 1] };
+            });
+          return responseJson({ quotes });
+        }
+
+        // Sebuf proto: GET /api/market/v1/list-crypto-quotes?ids=...
         if (parsed.pathname === '/api/market/v1/list-crypto-quotes') {
           return responseJson({
             quotes: [
@@ -658,8 +672,8 @@ test.describe('desktop runtime routing guardrails', () => {
 
     expect(result.commoditiesRenders.some((count) => count > 0)).toBe(true);
     expect(result.commoditiesConfigErrors.length).toBe(0);
-    // Commodities go through listMarketQuotes batch (at least 2 calls: stocks + commodities)
-    expect(result.marketQuoteCalls).toBeGreaterThanOrEqual(2);
+    // Stocks go through listMarketQuotes; commodities use their own quote RPC.
+    expect(result.marketQuoteCalls).toBeGreaterThanOrEqual(1);
 
     expect(result.cryptoRenders.some((count) => count > 0)).toBe(true);
     expect(result.apiStatuses.some((entry) => entry.name === 'Finnhub' && entry.status === 'error')).toBe(true);
@@ -688,7 +702,7 @@ test.describe('desktop runtime routing guardrails', () => {
         const parsed = new URL(toUrl(input));
         if (parsed.pathname === '/api/conflict/v1/get-humanitarian-summary') {
           const body = init?.body ? JSON.parse(String(init.body)) : {};
-          const countryCode = String(body.countryCode || '').toUpperCase();
+          const countryCode = String(parsed.searchParams.get('country_code') || body.countryCode || '').toUpperCase();
           seenCountryCodes.add(countryCode);
           return responseJson({
             summary: {
