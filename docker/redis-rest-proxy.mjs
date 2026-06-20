@@ -64,7 +64,7 @@ async function runCommand(args) {
   return client.sendCommand([cmd, ...cmdArgs.map(String)]);
 }
 
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+const MAX_BODY_BYTES = Number(process.env.SRH_MAX_BODY_BYTES || 8 * 1024 * 1024); // 8 MB default
 
 async function readBody(req) {
   const chunks = [];

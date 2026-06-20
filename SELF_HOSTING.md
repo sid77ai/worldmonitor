@@ -64,9 +64,11 @@ services:
       FINNHUB_API_KEY: ""         # https://finnhub.io (free tier)
       FRED_API_KEY: ""            # https://fred.stlouisfed.org/docs/api/api_key.html (free)
       EIA_API_KEY: ""             # https://www.eia.gov/opendata/ (free)
+      NWS_USER_AGENT: ""          # api.weather.gov contact string
 
       # ⚔️ Conflict & Unrest
       ACLED_ACCESS_TOKEN: ""      # https://acleddata.com (free for researchers)
+      UCDP_ACCESS_TOKEN: ""       # https://ucdp.uu.se/apidocs/ (free, request token)
 
       # 🛰️ Earth Observation
       NASA_FIRMS_API_KEY: ""      # REQUIRED for seed-fire-detections.mjs — https://firms.modaps.eosdis.nasa.gov (free)
@@ -88,6 +90,9 @@ services:
   ais-relay:
     environment:
       AISSTREAM_API_KEY: ""       # same key as above — relay needs it too
+      FINNHUB_API_KEY: ""         # relay market seed loop
+      FRED_API_KEY: ""            # relay economic seed loop
+      UCDP_ACCESS_TOKEN: ""       # relay UCDP seed loop
 ```
 
 ### 💰 Free vs Paid
