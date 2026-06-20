@@ -339,6 +339,12 @@ export async function fetchDividendProfile(symbol: string, currentPrice: number)
         const byInterval = paymentsPerYearFromInterval(entries);
         paymentsPerYear = byInterval > 0 ? byInterval : recentDivs.length;
       }
+    } else {
+      const latestMs = (entries[entries.length - 1]?.date ?? 0) * 1000;
+      const latestAgeDays = latestMs > 0 ? (now - latestMs) / (24 * 3600 * 1000) : Number.POSITIVE_INFINITY;
+      if (latestAgeDays <= 450) {
+        paymentsPerYear = paymentsPerYearFromInterval(entries);
+      }
     }
 
     const latestEntry = entries[entries.length - 1]!;
