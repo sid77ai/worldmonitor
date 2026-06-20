@@ -129,6 +129,7 @@ import { fetchSecurityAdvisories } from '@/services/security-advisories';
 import { fetchThermalEscalations } from '@/services/thermal-escalation';
 import { fetchCrossSourceSignals } from '@/services/cross-source-signals';
 import { fetchCommercialVesselWatch, type CommercialVesselReport, type CommercialVesselWatch } from '@/services/commercial-vessels';
+import { assessAdherence, resolveSchedule } from '@/services/vessel-schedule';
 import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { fetchOrefAlerts, startOrefPolling, stopOrefPolling, onOrefAlertsUpdate } from '@/services/oref-alerts';
 import { getResilienceRanking } from '@/services/resilience';
@@ -216,6 +217,36 @@ import type { TechHubsPanel } from '@/components/TechHubsPanel';
 
 const AIS_OPERATOR_WATCH_ID = 'ais-operator-watch';
 
+const AIS_CARRIER_FILTERS = [
+  { id: 'all', label: 'All', terms: [] },
+  { id: 'maersk', label: 'Maersk', terms: ['MAERSK'] },
+  { id: 'hapag-lloyd', label: 'Hapag-Lloyd', terms: ['HAPAG', 'LLOYD'] },
+  { id: 'msc', label: 'MSC', terms: ['MSC'] },
+  { id: 'cma-cgm', label: 'CMA CGM', terms: ['CMA CGM'] },
+  { id: 'cosco', label: 'COSCO', terms: ['COSCO'] },
+  { id: 'evergreen', label: 'Evergreen', terms: ['EVERGREEN'] },
+  { id: 'one', label: 'ONE', terms: ['ONE', 'OCEAN NETWORK EXPRESS'] },
+  { id: 'yang-ming', label: 'Yang Ming', terms: ['YANG MING'] },
+] as const;
+
+type AisCarrierId = typeof AIS_CARRIER_FILTERS[number]['id'];
+
+const AIS_VESSEL_TYPE_FILTERS = [
+  { id: 'all', label: 'All types' },
+  { id: 'container', label: 'Container/Cargo' },
+  { id: 'tanker', label: 'Tanker' },
+  { id: 'passenger', label: 'Passenger' },
+  { id: 'fishing', label: 'Fishing' },
+  { id: 'special', label: 'Tug/Special' },
+  { id: 'unknown', label: 'Unknown' },
+] as const;
+
+type AisVesselTypeId = typeof AIS_VESSEL_TYPE_FILTERS[number]['id'];
+
+const AIS_CARRIER_QUERY = Array.from(new Set(
+  AIS_CARRIER_FILTERS.flatMap((carrier) => carrier.terms),
+)).join(',');
+
 function formatAisTime(timestamp: number): string {
   const ms = Number(timestamp);
   if (!Number.isFinite(ms) || ms <= 0) return 'unknown';
@@ -233,43 +264,220 @@ function setText(parent: HTMLElement, className: string, value: string): HTMLEle
   return el;
 }
 
-function renderAisOperatorWatch(watch: CommercialVesselWatch | null): void {
-  if (typeof document === 'undefined') return;
-  let panel = document.getElementById(AIS_OPERATOR_WATCH_ID);
-  if (!watch) {
-    panel?.remove();
-    return;
-  }
-  if (!panel) {
-    panel = document.createElement('section');
-    panel.id = AIS_OPERATOR_WATCH_ID;
-    panel.className = 'ais-operator-watch';
-    document.body.appendChild(panel);
-  }
+interface AisWatchUiState {
+  watch: CommercialVesselWatch | null;
+  query: string;
+  carrierId: AisCarrierId;
+  vesselTypeId: AisVesselTypeId;
+  onSelect: ((vessel: CommercialVesselReport) => void) | null;
+  onFilterChange: ((vessels: CommercialVesselReport[]) => void) | null;
+}
+const aisWatchUi: AisWatchUiState = {
+  watch: null,
+  query: '',
+  carrierId: 'all',
+  vesselTypeId: 'all',
+  onSelect: null,
+  onFilterChange: null,
+};
 
-  panel.replaceChildren();
+function isShortCarrierTermMatch(name: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(name);
+}
+
+function vesselMatchesCarrier(vessel: CommercialVesselReport, carrierId: AisCarrierId): boolean {
+  if (carrierId === 'all') return true;
+  const carrier = AIS_CARRIER_FILTERS.find((item) => item.id === carrierId);
+  if (!carrier) return true;
+  const name = (vessel.name || '').toUpperCase();
+  const operator = (vessel.operator || '').toUpperCase();
+  return carrier.terms.some((term) => {
+    if (operator.includes(term)) return true;
+    return term.length <= 3 ? isShortCarrierTermMatch(name, term) : name.includes(term);
+  });
+}
+
+function classifyAisVesselType(vessel: CommercialVesselReport): AisVesselTypeId {
+  const shipType = Number(vessel.shipType);
+  if (Number.isFinite(shipType) && shipType > 0) {
+    if (shipType >= 70 && shipType <= 79) return 'container';
+    if (shipType >= 80 && shipType <= 89) return 'tanker';
+    if (shipType >= 60 && shipType <= 69) return 'passenger';
+    if (shipType === 30) return 'fishing';
+    if ((shipType >= 31 && shipType <= 59) || (shipType >= 90 && shipType <= 99)) return 'special';
+  }
+  // For the carrier watch, a named liner operator is usually a container ship
+  // even before the relay receives that vessel's Type 5 static AIS frame.
+  if (vessel.operator && vessel.operator !== 'Commercial') return 'container';
+  return 'unknown';
+}
+
+function formatAisVesselType(vessel: CommercialVesselReport): string {
+  const type = classifyAisVesselType(vessel);
+  switch (type) {
+    case 'container': return 'Container/Cargo';
+    case 'tanker': return 'Tanker';
+    case 'passenger': return 'Passenger';
+    case 'fishing': return 'Fishing';
+    case 'special': return 'Tug/Special';
+    default: return 'Type unknown';
+  }
+}
+
+function vesselMatchesType(vessel: CommercialVesselReport, vesselTypeId: AisVesselTypeId): boolean {
+  if (vesselTypeId === 'all') return true;
+  return classifyAisVesselType(vessel) === vesselTypeId;
+}
+
+function getFilteredAisVessels(): CommercialVesselReport[] {
+  const vessels = aisWatchUi.watch?.vessels ?? [];
+  const q = aisWatchUi.query.trim().toUpperCase();
+  return vessels.filter((vessel) => {
+    if (!vesselMatchesCarrier(vessel, aisWatchUi.carrierId)) return false;
+    if (!vesselMatchesType(vessel, aisWatchUi.vesselTypeId)) return false;
+    return !q || (vessel.name || '').toUpperCase().includes(q) || vessel.mmsi.includes(q);
+  });
+}
+
+function notifyAisWatchFilterChange(): void {
+  aisWatchUi.onFilterChange?.(getFilteredAisVessels());
+}
+
+function updateAisWatchMeta(panel: ParentNode): void {
+  const meta = panel.querySelector('.ais-operator-watch__meta');
+  const watch = aisWatchUi.watch;
+  if (!meta || !watch) return;
+  const filteredCount = getFilteredAisVessels().length;
+  meta.textContent = `${filteredCount} shown / ${watch.vessels.length} watched / ${watch.status.vessels.toLocaleString()} live`;
+}
+
+function buildAisWatchScaffold(): HTMLElement {
+  const panel = document.createElement('section');
+  panel.id = AIS_OPERATOR_WATCH_ID;
+  panel.className = 'ais-operator-watch';
+
   const header = document.createElement('div');
   header.className = 'ais-operator-watch__header';
-  const title = document.createElement('div');
-  title.className = 'ais-operator-watch__title';
-  title.textContent = 'AIS vessel watch';
-  const meta = document.createElement('div');
-  meta.className = 'ais-operator-watch__meta';
-  meta.textContent = `${watch.vessels.length} named matches / ${watch.status.vessels.toLocaleString()} live vessels`;
-  header.append(title, meta);
+  setText(header, 'ais-operator-watch__title', 'AIS vessel watch');
+  setText(header, 'ais-operator-watch__meta', '');
   panel.appendChild(header);
 
-  if (watch.vessels.length === 0) {
-    setText(panel, 'ais-operator-watch__empty', 'No Maersk or Hapag-Lloyd vessel names in the current AIS window.');
-    return;
+  const filters = document.createElement('div');
+  filters.className = 'ais-operator-watch__filters';
+  for (const carrier of AIS_CARRIER_FILTERS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ais-operator-watch__filter';
+    button.dataset.carrier = carrier.id;
+    button.textContent = carrier.label;
+    button.setAttribute('aria-pressed', String(carrier.id === aisWatchUi.carrierId));
+    button.addEventListener('click', () => {
+      aisWatchUi.carrierId = carrier.id;
+      for (const el of filters.querySelectorAll<HTMLButtonElement>('.ais-operator-watch__filter')) {
+        el.setAttribute('aria-pressed', String(el.dataset.carrier === carrier.id));
+      }
+      const list = panel.querySelector('.ais-operator-watch__list');
+      if (list) renderAisWatchList(list as HTMLElement);
+      updateAisWatchMeta(panel);
+      notifyAisWatchFilterChange();
+    });
+    filters.appendChild(button);
   }
+  panel.appendChild(filters);
+
+  const typeFilters = document.createElement('div');
+  typeFilters.className = 'ais-operator-watch__filters ais-operator-watch__filters--types';
+  for (const vesselType of AIS_VESSEL_TYPE_FILTERS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ais-operator-watch__filter ais-operator-watch__filter--type';
+    button.dataset.vesselType = vesselType.id;
+    button.textContent = vesselType.label;
+    button.setAttribute('aria-pressed', String(vesselType.id === aisWatchUi.vesselTypeId));
+    button.addEventListener('click', () => {
+      aisWatchUi.vesselTypeId = vesselType.id;
+      for (const el of typeFilters.querySelectorAll<HTMLButtonElement>('.ais-operator-watch__filter')) {
+        el.setAttribute('aria-pressed', String(el.dataset.vesselType === vesselType.id));
+      }
+      const list = panel.querySelector('.ais-operator-watch__list');
+      if (list) renderAisWatchList(list as HTMLElement);
+      updateAisWatchMeta(panel);
+      notifyAisWatchFilterChange();
+    });
+    typeFilters.appendChild(button);
+  }
+  panel.appendChild(typeFilters);
+
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.className = 'ais-operator-watch__search';
+  search.placeholder = 'Search vessel or MMSI...';
+  search.addEventListener('input', () => {
+    aisWatchUi.query = search.value;
+    const list = panel.querySelector('.ais-operator-watch__list');
+    if (list) renderAisWatchList(list as HTMLElement);
+    updateAisWatchMeta(panel);
+    notifyAisWatchFilterChange();
+  });
+  panel.appendChild(search);
 
   const list = document.createElement('div');
   list.className = 'ais-operator-watch__list';
-  for (const vessel of watch.vessels.slice(0, 8)) {
+  panel.appendChild(list);
+
+  return panel;
+}
+
+// Re-render only the list body so the search box keeps its value and focus
+// across the periodic AIS poll.
+function renderAisWatchList(list: HTMLElement): void {
+  const watch = aisWatchUi.watch;
+  list.replaceChildren();
+  if (!watch || watch.vessels.length === 0) {
+    setText(list, 'ais-operator-watch__empty', 'No watched carrier vessel names in the current AIS window.');
+    return;
+  }
+  const matches = getFilteredAisVessels();
+  if (matches.length === 0) {
+    const carrier = AIS_CARRIER_FILTERS.find((item) => item.id === aisWatchUi.carrierId);
+    const vesselType = AIS_VESSEL_TYPE_FILTERS.find((item) => item.id === aisWatchUi.vesselTypeId);
+    const scope = carrier && carrier.id !== 'all' ? `${carrier.label} ` : '';
+    const typeScope = vesselType && vesselType.id !== 'all' ? `${vesselType.label.toLowerCase()} ` : '';
+    setText(list, 'ais-operator-watch__empty', `No ${scope}${typeScope}vessels match "${aisWatchUi.query}".`);
+    return;
+  }
+  for (const vessel of matches.slice(0, 25)) {
     list.appendChild(renderVesselRow(vessel));
   }
-  panel.appendChild(list);
+}
+
+function renderAisOperatorWatch(
+  watch: CommercialVesselWatch | null,
+  onSelect?: (vessel: CommercialVesselReport) => void,
+  onFilterChange?: (vessels: CommercialVesselReport[]) => void,
+): void {
+  if (typeof document === 'undefined') return;
+  aisWatchUi.watch = watch;
+  if (onSelect) aisWatchUi.onSelect = onSelect;
+  if (onFilterChange) aisWatchUi.onFilterChange = onFilterChange;
+
+  if (!watch) {
+    document.getElementById(AIS_OPERATOR_WATCH_ID)?.remove();
+    aisWatchUi.onFilterChange?.([]);
+    return;
+  }
+
+  let panel = document.getElementById(AIS_OPERATOR_WATCH_ID);
+  if (!panel) {
+    panel = buildAisWatchScaffold();
+    document.body.appendChild(panel);
+  }
+
+  updateAisWatchMeta(panel);
+  const list = panel.querySelector('.ais-operator-watch__list');
+  if (list) renderAisWatchList(list as HTMLElement);
+  notifyAisWatchFilterChange();
 }
 
 function renderVesselRow(vessel: CommercialVesselReport): HTMLElement {
@@ -277,19 +485,37 @@ function renderVesselRow(vessel: CommercialVesselReport): HTMLElement {
   row.className = 'ais-operator-watch__row';
   const operator = vessel.operator || 'Commercial';
   row.dataset.operator = operator.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  row.tabIndex = 0;
+  row.setAttribute('role', 'button');
+
+  const adherence = assessAdherence(vessel, resolveSchedule(vessel));
+  const destination = adherence.destinationPort?.name || vessel.destination || 'Destination unknown';
 
   const main = document.createElement('div');
   main.className = 'ais-operator-watch__main';
   setText(main, 'ais-operator-watch__name', vessel.name || vessel.mmsi);
-  setText(main, 'ais-operator-watch__sub', `${operator} · MMSI ${vessel.mmsi}`);
+  setText(main, 'ais-operator-watch__sub', `${operator} · → ${destination}`);
 
   const detail = document.createElement('div');
   detail.className = 'ais-operator-watch__detail';
+  setText(detail, 'ais-operator-watch__type', formatAisVesselType(vessel));
   setText(detail, 'ais-operator-watch__speed', `${Number(vessel.speed || 0).toFixed(1)} kn`);
-  setText(detail, 'ais-operator-watch__coords', `${vessel.lat.toFixed(2)}, ${vessel.lon.toFixed(2)}`);
   setText(detail, 'ais-operator-watch__seen', formatAisTime(vessel.timestamp));
 
-  row.append(main, detail);
+  const badge = document.createElement('div');
+  badge.className = `ais-operator-watch__badge ais-operator-watch__badge--${adherence.status}`;
+  badge.textContent = adherence.label;
+
+  row.append(main, detail, badge);
+
+  const focus = () => aisWatchUi.onSelect?.(vessel);
+  row.addEventListener('click', focus);
+  row.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      focus();
+    }
+  });
   return row;
 }
 
@@ -2659,19 +2885,22 @@ export class DataLoaderManager implements AppModule {
         dataFreshness.recordUpdate('ais', shippingCount);
       }
       if (aisStatus.connected) {
+        const focusVessel = (vessel: CommercialVesselReport) => this.ctx.map?.setCenter(vessel.lat, vessel.lon, 7);
+        const plotVessels = (vessels: CommercialVesselReport[]) => this.ctx.map?.setCommercialVessels(vessels);
         try {
-          const vesselWatch = await fetchCommercialVesselWatch('maersk,hapag,lloyd', { limit: 80 });
-          renderAisOperatorWatch(vesselWatch);
+          const vesselWatch = await fetchCommercialVesselWatch(AIS_CARRIER_QUERY, { limit: 160 });
+          renderAisOperatorWatch(vesselWatch, focusVessel, plotVessels);
         } catch {
           renderAisOperatorWatch({
             timestamp: new Date().toISOString(),
-            query: ['maersk', 'hapag', 'lloyd'],
+            query: AIS_CARRIER_QUERY.split(','),
             status: aisStatus,
             vessels: [],
-          });
+          }, focusVessel, plotVessels);
         }
       } else {
         renderAisOperatorWatch(null);
+        this.ctx.map?.setCommercialVessels([]);
       }
     } catch (error) {
       this.ctx.map?.setLayerReady('ais', false);

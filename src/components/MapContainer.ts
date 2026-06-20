@@ -52,6 +52,7 @@ import type { ImageryScene } from '@/generated/server/worldmonitor/imagery/v1/se
 import type { WebcamEntry, WebcamCluster } from '@/generated/client/worldmonitor/webcam/v1/service_client';
 import type { TrafficAnomaly as ProtoTrafficAnomaly, DdosLocationHit } from '@/generated/client/worldmonitor/infrastructure/v1/service_client';
 import type { DiseaseOutbreakItem } from '@/services/disease-outbreaks';
+import type { CommercialVesselReport } from '@/services/commercial-vessels';
 import type { GetChokepointStatusResponse } from '@/services/supply-chain';
 import type { ScenarioVisualState, ScenarioResult } from '@/config/scenario-templates';
 import { getAuthState } from '@/services/auth-state';
@@ -131,6 +132,7 @@ export class MapContainer {
   private cachedMilitaryFlightClusters: MilitaryFlightCluster[] | null = null;
   private cachedMilitaryVessels: MilitaryVessel[] | null = null;
   private cachedMilitaryVesselClusters: MilitaryVesselCluster[] | null = null;
+  private cachedCommercialVessels: CommercialVesselReport[] | null = null;
   private cachedNaturalEvents: NaturalEvent[] | null = null;
   private cachedFires: FireMarker[] | null = null;
   private cachedTechEvents: TechEventMarker[] | null = null;
@@ -338,6 +340,7 @@ export class MapContainer {
     if (this.cachedAircraftPositions) this.setAircraftPositions(this.cachedAircraftPositions);
     if (this.cachedMilitaryFlights) this.setMilitaryFlights(this.cachedMilitaryFlights, this.cachedMilitaryFlightClusters ?? []);
     if (this.cachedMilitaryVessels) this.setMilitaryVessels(this.cachedMilitaryVessels, this.cachedMilitaryVesselClusters ?? []);
+    if (this.cachedCommercialVessels) this.setCommercialVessels(this.cachedCommercialVessels);
     if (this.cachedNaturalEvents) this.setNaturalEvents(this.cachedNaturalEvents);
     if (this.cachedFires) this.setFires(this.cachedFires);
     if (this.cachedTechEvents) this.setTechEvents(this.cachedTechEvents);
@@ -578,6 +581,12 @@ export class MapContainer {
     this.cachedMilitaryVesselClusters = clusters;
     if (this.useGlobe) { this.globeMap?.setMilitaryVessels(vessels, clusters); return; }
     if (this.useDeckGL) { this.deckGLMap?.setMilitaryVessels(vessels, clusters); } else { this.svgMap?.setMilitaryVessels(vessels, clusters); }
+  }
+
+  public setCommercialVessels(vessels: CommercialVesselReport[]): void {
+    this.cachedCommercialVessels = vessels;
+    // Only the DeckGL renderer plots this layer; globe/SVG fallbacks stay lightweight.
+    if (this.useDeckGL) { this.deckGLMap?.setCommercialVessels(vessels); }
   }
 
   public setNaturalEvents(events: NaturalEvent[]): void {
@@ -1116,6 +1125,7 @@ export class MapContainer {
     this.cachedMilitaryFlightClusters = null;
     this.cachedMilitaryVessels = null;
     this.cachedMilitaryVesselClusters = null;
+    this.cachedCommercialVessels = null;
     this.cachedNaturalEvents = null;
     this.cachedFires = null;
     this.cachedTechEvents = null;

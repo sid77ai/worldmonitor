@@ -289,7 +289,7 @@ function sebufApiPlugin(): Plugin {
       researchServerMod, researchHandlerMod,
       unrestServerMod, unrestHandlerMod,
       conflictServerMod, conflictHandlerMod,
-      maritimeServerMod, maritimeHandlerMod,
+      maritimeServerMod, maritimeHandlerMod, commercialVesselsMod,
       cyberServerMod, cyberHandlerMod,
       economicServerMod, economicHandlerMod,
       infrastructureServerMod, infrastructureHandlerMod,
@@ -330,6 +330,7 @@ function sebufApiPlugin(): Plugin {
         import('./server/worldmonitor/conflict/v1/handler'),
         import('./src/generated/server/worldmonitor/maritime/v1/service_server'),
         import('./server/worldmonitor/maritime/v1/handler'),
+        import('./server/worldmonitor/maritime/v1/list-commercial-vessels'),
         import('./src/generated/server/worldmonitor/cyber/v1/service_server'),
         import('./server/worldmonitor/cyber/v1/handler'),
         import('./src/generated/server/worldmonitor/economic/v1/service_server'),
@@ -376,6 +377,24 @@ function sebufApiPlugin(): Plugin {
       ...unrestServerMod.createUnrestServiceRoutes(unrestHandlerMod.unrestHandler, serverOptions),
       ...conflictServerMod.createConflictServiceRoutes(conflictHandlerMod.conflictHandler, serverOptions),
       ...maritimeServerMod.createMaritimeServiceRoutes(maritimeHandlerMod.maritimeHandler, serverOptions),
+      {
+        method: 'GET',
+        path: '/api/maritime/v1/list-commercial-vessels',
+        handler: async (req: Request): Promise<Response> => {
+          const url = new URL(req.url, 'http://localhost');
+          const result = await commercialVesselsMod.listCommercialVessels(
+            { request: req, pathParams: {}, headers: Object.fromEntries(req.headers.entries()) },
+            {
+              query: url.searchParams.get('query') || 'maersk,hapag,lloyd',
+              limit: Number(url.searchParams.get('limit') || 80),
+            },
+          );
+          return new Response(JSON.stringify(result), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+      },
       ...cyberServerMod.createCyberServiceRoutes(cyberHandlerMod.cyberHandler, serverOptions),
       ...economicServerMod.createEconomicServiceRoutes(economicHandlerMod.economicHandler, serverOptions),
       ...infrastructureServerMod.createInfrastructureServiceRoutes(infrastructureHandlerMod.infrastructureHandler, serverOptions),

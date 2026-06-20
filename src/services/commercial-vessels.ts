@@ -11,6 +11,8 @@ export interface CommercialVesselReport {
   speed: number;
   course: number;
   timestamp: number;
+  destination: string;
+  eta: number;
 }
 
 export interface CommercialVesselWatch {

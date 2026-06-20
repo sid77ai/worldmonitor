@@ -12,6 +12,8 @@ export interface CommercialVesselReport {
   speed: number;
   course: number;
   timestamp: number;
+  destination: string;
+  eta: number;
 }
 
 export interface ListCommercialVesselsRequest {
@@ -35,7 +37,7 @@ function sanitizeQuery(raw: string): string {
     .split(',')
     .map((term) => term.trim())
     .filter((term) => /^[a-z0-9 ._-]{3,40}$/i.test(term))
-    .slice(0, 8)
+    .slice(0, 12)
     .join(',');
 }
 
@@ -62,6 +64,8 @@ function toVessel(raw: any): CommercialVesselReport | null {
     speed: Number.isFinite(Number(raw.speed)) ? Number(raw.speed) : 0,
     course: Number.isFinite(Number(raw.course)) ? Number(raw.course) : 0,
     timestamp: Number.isFinite(Number(raw.timestamp)) ? Number(raw.timestamp) : Date.now(),
+    destination: String(raw.destination ?? ''),
+    eta: Number.isFinite(Number(raw.eta)) ? Number(raw.eta) : 0,
   };
 }
 

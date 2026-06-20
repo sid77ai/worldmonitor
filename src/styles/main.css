@@ -24716,16 +24716,123 @@ body.map-width-resizing {
   overflow: auto;
 }
 
+.ais-operator-watch__filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 10px 14px 0;
+  scrollbar-width: thin;
+}
+
+.ais-operator-watch__filters--types {
+  padding-top: 6px;
+}
+
+.ais-operator-watch__filter {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ais-operator-watch__filter--type {
+  min-height: 24px;
+  padding-inline: 8px;
+  font-size: 10px;
+}
+
+.ais-operator-watch__filter:hover,
+.ais-operator-watch__filter:focus-visible {
+  border-color: rgba(0, 209, 255, 0.45);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ais-operator-watch__filter[aria-pressed="true"] {
+  border-color: rgba(0, 209, 255, 0.65);
+  background: rgba(0, 209, 255, 0.14);
+  color: var(--text-primary);
+}
+
+.ais-operator-watch__search {
+  width: calc(100% - 28px);
+  margin: 8px 14px 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.ais-operator-watch__search:focus {
+  border-color: rgba(0, 209, 255, 0.55);
+  outline: none;
+}
+
 .ais-operator-watch__row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-areas:
+    "main detail"
+    "badge badge";
+  gap: 6px 12px;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.ais-operator-watch__main { grid-area: main; min-width: 0; }
+.ais-operator-watch__detail { grid-area: detail; }
+.ais-operator-watch__badge { grid-area: badge; }
+
+.ais-operator-watch__row:hover,
+.ais-operator-watch__row:focus-visible {
+  background: rgba(0, 209, 255, 0.08);
+  outline: none;
 }
 
 .ais-operator-watch__row:last-child {
   border-bottom: 0;
+}
+
+.ais-operator-watch__badge {
+  justify-self: start;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.ais-operator-watch__badge--ahead,
+.ais-operator-watch__badge--on-track,
+.ais-operator-watch__badge--arrived {
+  background: rgba(46, 204, 113, 0.18);
+  color: #6ee7a8;
+}
+
+.ais-operator-watch__badge--behind {
+  background: rgba(255, 183, 3, 0.18);
+  color: #ffce5c;
+}
+
+.ais-operator-watch__badge--overdue {
+  background: rgba(231, 76, 60, 0.2);
+  color: #ff8e80;
+}
+
+.ais-operator-watch__badge--unknown {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
 }
 
 .ais-operator-watch__row[data-operator="maersk"] {
@@ -24734,6 +24841,30 @@ body.map-width-resizing {
 
 .ais-operator-watch__row[data-operator="hapag-lloyd"] {
   border-left: 3px solid #ffb703;
+}
+
+.ais-operator-watch__row[data-operator="msc"] {
+  border-left: 3px solid #ffd54a;
+}
+
+.ais-operator-watch__row[data-operator="cma-cgm"] {
+  border-left: 3px solid #55aaff;
+}
+
+.ais-operator-watch__row[data-operator="cosco"] {
+  border-left: 3px solid #dc5050;
+}
+
+.ais-operator-watch__row[data-operator="evergreen"] {
+  border-left: 3px solid #00be78;
+}
+
+.ais-operator-watch__row[data-operator="yang-ming"] {
+  border-left: 3px solid #be78ff;
+}
+
+.ais-operator-watch__row[data-operator="one"] {
+  border-left: 3px solid #d840ff;
 }
 
 .ais-operator-watch__name {
@@ -24754,9 +24885,14 @@ body.map-width-resizing {
 
 .ais-operator-watch__detail {
   display: grid;
-  min-width: 92px;
+  min-width: 108px;
   gap: 2px;
   text-align: right;
+}
+
+.ais-operator-watch__type {
+  color: var(--text-secondary);
+  font-size: 10px;
 }
 
 .ais-operator-watch__speed {
@@ -24778,6 +24914,10 @@ body.map-width-resizing {
 
   .ais-operator-watch__row {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "main"
+      "detail"
+      "badge";
   }
 
   .ais-operator-watch__detail {

@@ -7182,8 +7182,30 @@ function processShipStaticDataForMeta(data) {
   vesselMeta.set(mmsi, {
     shipType,
     shipName: (sd.Name || meta.ShipName || '').trim(),
+    destination: (sd.Destination || '').trim(),
+    eta: aisEtaToEpochMs(sd.Eta),
     lastSeen: Date.now(),
   });
+}
+
+// AIS Type 5 ETA is a partial date {Month, Day, Hour, Minute} with NO year
+// (and 0/24/60 sentinels mean "not available"). Resolve against the current
+// year, rolling forward a year when the resulting date is far in the past so a
+// December-reported ETA read in January doesn't look 11 months overdue.
+function aisEtaToEpochMs(eta) {
+  if (!eta || typeof eta !== 'object') return 0;
+  const month = Number(eta.Month);
+  const day = Number(eta.Day);
+  const hour = Number(eta.Hour);
+  const minute = Number(eta.Minute);
+  if (!(month >= 1 && month <= 12) || !(day >= 1 && day <= 31)) return 0;
+  if (!(hour >= 0 && hour <= 23) || !(minute >= 0 && minute <= 59)) return 0;
+  const now = new Date();
+  let ts = Date.UTC(now.getUTCFullYear(), month - 1, day, hour, minute);
+  if (ts < now.getTime() - 30 * 24 * 3600 * 1000) {
+    ts = Date.UTC(now.getUTCFullYear() + 1, month - 1, day, hour, minute);
+  }
+  return ts;
 }
 
 function processPositionReportForSnapshot(data) {
@@ -7567,14 +7589,30 @@ function normalizeVesselQuery(raw) {
     .split(',')
     .map((term) => term.trim().toUpperCase())
     .filter((term) => term.length >= 3)
-    .slice(0, 8);
+    .slice(0, 12);
 }
 
 function inferCommercialOperator(name) {
   const n = String(name || '').toUpperCase();
   if (n.includes('MAERSK')) return 'Maersk';
   if (n.includes('HAPAG') || n.includes('LLOYD')) return 'Hapag-Lloyd';
+  if (/\bMSC\b/.test(n)) return 'MSC';
+  if (n.includes('CMA CGM')) return 'CMA CGM';
+  if (n.includes('COSCO')) return 'COSCO';
+  if (n.includes('EVERGREEN')) return 'Evergreen';
+  if (n.includes('YANG MING')) return 'Yang Ming';
+  if (/\bONE\b/.test(n) || n.includes('OCEAN NETWORK EXPRESS')) return 'ONE';
   return '';
+}
+
+function commercialNameMatchesTerm(name, term) {
+  const n = String(name || '').toUpperCase();
+  const t = String(term || '').toUpperCase();
+  if (!n || !t) return false;
+  if (t.length <= 3) {
+    return new RegExp(`(^|[^A-Z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z0-9]|$)`).test(n);
+  }
+  return n.includes(t);
 }
 
 function getCommercialVesselReportsSnapshot(queryTerms, limit) {
@@ -7583,22 +7621,27 @@ function getCommercialVesselReportsSnapshot(queryTerms, limit) {
   return Array.from(vessels.values())
     .filter((v) => {
       const name = String(v.name || '').toUpperCase();
-      return name && terms.some((term) => name.includes(term));
+      return name && terms.some((term) => commercialNameMatchesTerm(name, term));
     })
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, max)
-    .map((v) => ({
-      mmsi: v.mmsi,
-      name: v.name || '',
-      operator: inferCommercialOperator(v.name),
-      lat: v.lat,
-      lon: v.lon,
-      shipType: Number.isFinite(Number(v.shipType)) ? Number(v.shipType) : 0,
-      heading: Number.isFinite(Number(v.heading)) ? Number(v.heading) : 0,
-      speed: Number.isFinite(Number(v.speed)) ? Number(v.speed) : 0,
-      course: Number.isFinite(Number(v.course)) ? Number(v.course) : 0,
-      timestamp: v.timestamp,
-    }));
+    .map((v) => {
+      const meta = vesselMeta.get(v.mmsi);
+      return {
+        mmsi: v.mmsi,
+        name: v.name || '',
+        operator: inferCommercialOperator(v.name),
+        lat: v.lat,
+        lon: v.lon,
+        shipType: Number.isFinite(Number(v.shipType)) ? Number(v.shipType) : 0,
+        heading: Number.isFinite(Number(v.heading)) ? Number(v.heading) : 0,
+        speed: Number.isFinite(Number(v.speed)) ? Number(v.speed) : 0,
+        course: Number.isFinite(Number(v.course)) ? Number(v.course) : 0,
+        timestamp: v.timestamp,
+        destination: (meta && meta.destination) || '',
+        eta: (meta && Number.isFinite(Number(meta.eta))) ? Number(meta.eta) : 0,
+      };
+    });
 }
 
 function buildSnapshot() {

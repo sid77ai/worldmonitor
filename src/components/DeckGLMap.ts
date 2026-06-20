@@ -129,6 +129,7 @@ import { trackGateHit } from '@/services/analytics';
 import { MapPopup, type PopupType } from './MapPopup';
 import { renderMilitaryVesselTooltipHtml } from './deckgl-tooltip-renderers';
 import type { GetChokepointStatusResponse } from '@/services/supply-chain';
+import type { CommercialVesselReport } from '@/services/commercial-vessels';
 import {
   updateHotspotEscalation,
   getHotspotEscalation,
@@ -323,12 +324,15 @@ const MARKER_ICONS = {
   star: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><polygon points="16,2 20,12 30,12 22,19 25,30 16,23 7,30 10,19 2,12 12,12" fill="white"/></svg>`),
   // Airplane silhouette - top-down with wings and tail (pointing north, rotated by trackDeg)
   plane: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 L17.5 10 L17 12 L27 17 L27 19 L17 16 L17 24 L20 26.5 L20 28 L16 27 L12 28 L12 26.5 L15 24 L15 16 L5 19 L5 17 L15 12 L14.5 10 Z" fill="white"/></svg>`),
+  // Ship silhouette - top-down, bow points north and rotates by AIS heading/course.
+  ship: 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M16 2 C20 6 22 12 22 20 L19 28 L13 28 L10 20 C10 12 12 6 16 2 Z M14 10 H18 V18 H14 Z M12 21 H20 L18.5 25 H13.5 Z" fill="white"/></svg>`),
 };
 
 const BASES_ICON_MAPPING = { triangleUp: { x: 0, y: 0, width: 32, height: 32, mask: true } };
 const NUCLEAR_ICON_MAPPING = { hexagon: { x: 0, y: 0, width: 32, height: 32, mask: true } };
 const DATACENTER_ICON_MAPPING = { square: { x: 0, y: 0, width: 32, height: 32, mask: true } };
 const AIRCRAFT_ICON_MAPPING = { plane: { x: 0, y: 0, width: 32, height: 32, mask: true } };
+const COMMERCIAL_VESSEL_ICON_MAPPING = { ship: { x: 0, y: 0, width: 32, height: 32, mask: true } };
 
 const CONFLICT_COUNTRY_ISO: Record<string, string[]> = {
   iran: ['IR'],
@@ -517,6 +521,7 @@ export class DeckGLMap {
   private iranEvents: IranEvent[] = [];
   private aisDisruptions: AisDisruptionEvent[] = [];
   private aisDensity: AisDensityZone[] = [];
+  private commercialVessels: CommercialVesselReport[] = [];
   private liveTankers: Array<{ mmsi: string; lat: number; lon: number; speed: number; shipType: number; name: string }> = [];
   private liveTankersAbort: AbortController | null = null;
   private liveTankersTimer: ReturnType<typeof setInterval> | null = null;
@@ -1845,6 +1850,11 @@ export class DeckGLMap {
     // AIS disruptions layer (spoofing/jamming)
     if (mapLayers.ais && this.aisDisruptions.length > 0) {
       layers.push(this.createAisDisruptionsLayer());
+    }
+
+    // Commercial vessel watch layer (named operator matches, shown with AIS)
+    if (mapLayers.ais && this.commercialVessels.length > 0) {
+      layers.push(this.createCommercialVesselsLayer());
     }
 
     // GPS/GNSS jamming layer
@@ -3296,6 +3306,40 @@ export class DeckGLMap {
     });
   }
 
+  private createCommercialVesselsLayer(): IconLayer<CommercialVesselReport> {
+    // Named commercial operator vessels from live AIS, rendered as heading-aware ship icons.
+    return new IconLayer<CommercialVesselReport>({
+      id: 'commercial-vessels-layer',
+      data: this.commercialVessels,
+      getPosition: (d) => [d.lon, d.lat],
+      getIcon: () => 'ship',
+      iconAtlas: MARKER_ICONS.ship,
+      iconMapping: COMMERCIAL_VESSEL_ICON_MAPPING,
+      getSize: (d) => Number(d.speed || 0) > 0.5 ? 18 : 15,
+      getColor: (d) => {
+        if (d.operator === 'Maersk') return [0, 150, 230, 220] as [number, number, number, number]; // Maersk blue
+        if (d.operator === 'Hapag-Lloyd') return [240, 140, 0, 220] as [number, number, number, number]; // Hapag orange
+        if (d.operator === 'MSC') return [255, 215, 0, 220] as [number, number, number, number]; // MSC yellow
+        if (d.operator === 'CMA CGM') return [85, 170, 255, 220] as [number, number, number, number]; // CMA CGM blue
+        if (d.operator === 'COSCO') return [220, 80, 80, 220] as [number, number, number, number]; // COSCO red
+        if (d.operator === 'Evergreen') return [0, 190, 120, 220] as [number, number, number, number]; // Evergreen green
+        if (d.operator === 'Yang Ming') return [190, 120, 255, 220] as [number, number, number, number]; // Yang Ming violet
+        return [120, 200, 160, 200] as [number, number, number, number]; // Other commercial
+      },
+      getAngle: (d) => {
+        const heading = Number(d.heading);
+        if (Number.isFinite(heading) && heading >= 0 && heading < 360) return -heading;
+        const course = Number(d.course);
+        return Number.isFinite(course) ? -course : 0;
+      },
+      sizeMinPixels: 10,
+      sizeMaxPixels: 24,
+      sizeScale: 1,
+      pickable: true,
+      billboard: false,
+    });
+  }
+
   private createCableAdvisoriesLayer(advisories: CableAdvisory[]): ScatterplotLayer {
     // Cable fault/maintenance advisories
     return new ScatterplotLayer({
@@ -4387,6 +4431,8 @@ export class DeckGLMap {
         return { html: `<div class="deckgl-tooltip"><strong>M${(obj.magnitude || 0).toFixed(1)} ${t('components.deckgl.tooltip.earthquake')}</strong><br/>${text(obj.place)}</div>` };
       case 'military-vessels-layer':
         return { html: renderMilitaryVesselTooltipHtml(obj, t) };
+      case 'commercial-vessels-layer':
+        return { html: `<div class="deckgl-tooltip"><strong>${text(obj.name || obj.mmsi)}</strong><br/>${text(obj.operator || 'Commercial')} · ${text((Number(obj.speed) || 0).toFixed(1))} kn<br/>MMSI ${text(obj.mmsi)}</div>` };
       case 'military-flights-layer':
         return { html: `<div class="deckgl-tooltip"><strong>${text(obj.callsign || obj.registration || t('components.deckgl.tooltip.militaryAircraft'))}</strong><br/>${text(obj.type)}</div>` };
       case 'military-vessel-clusters-layer':
@@ -6303,6 +6349,11 @@ export class DeckGLMap {
   public setMilitaryVessels(vessels: MilitaryVessel[], clusters: MilitaryVesselCluster[] = []): void {
     this.militaryVessels = vessels;
     this.militaryVesselClusters = clusters;
+    this.render();
+  }
+
+  public setCommercialVessels(vessels: CommercialVesselReport[]): void {
+    this.commercialVessels = vessels;
     this.render();
   }
 
