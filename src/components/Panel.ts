@@ -658,11 +658,24 @@ export class Panel {
     this.statusBadgeEl.textContent = detail ? `${labels[state]} · ${detail}` : labels[state];
     this.statusBadgeEl.className = `panel-data-badge ${state}`;
     this.statusBadgeEl.style.display = 'inline-flex';
+    this.syncOperationalState();
   }
 
   protected clearDataBadge(): void {
     if (!this.statusBadgeEl) return;
     this.statusBadgeEl.style.display = 'none';
+    this.syncOperationalState();
+  }
+
+  private syncOperationalState(): void {
+    const hasUnavailableBadge = this.statusBadgeEl?.style.display !== 'none'
+      && this.statusBadgeEl?.classList.contains('unavailable');
+    const hasError = this.header.classList.contains('panel-header-error');
+    const state = this._locked ? 'locked' : hasError || hasUnavailableBadge ? 'unavailable' : null;
+
+    this.element.classList.toggle('panel-is-inactive', state !== null);
+    if (state) this.element.dataset.panelState = state;
+    else delete this.element.dataset.panelState;
   }
 
   private updateFreshnessBadge(summary: PanelFreshnessSummary | null = dataFreshness.getPanelFreshness(this.panelId)): void {
@@ -870,6 +883,7 @@ export class Panel {
       (child as HTMLElement).style.display = 'none';
     }
     this.element.classList.add('panel-is-locked');
+    this.syncOperationalState();
 
     const iconEl = h('div', { className: 'panel-locked-icon' });
     setTrustedHtml(iconEl, trustedHtml(lockSvg, 'legacy direct innerHTML migration'));
@@ -932,6 +946,7 @@ export class Panel {
       (child as HTMLElement).style.display = 'none';
     }
     this.element.classList.add('panel-is-locked');
+    this.syncOperationalState();
 
     const iconEl = h('div', { className: 'panel-locked-icon' });
     setTrustedHtml(iconEl, trustedHtml(entry.icon, 'legacy direct innerHTML migration'));
@@ -964,6 +979,7 @@ export class Panel {
     } else {
       replaceChildren(this.content);
     }
+    this.syncOperationalState();
   }
 
   // Capture this.content's current child nodes so unlockPanel can put them
@@ -1032,6 +1048,7 @@ export class Panel {
   }
 
   public showConfigError(message: string): void {
+    this.setErrorState(true);
     const msgEl = h('div', { className: 'config-error-message' }, message);
     if (isDesktopRuntime()) {
       msgEl.appendChild(
@@ -1064,6 +1081,7 @@ export class Panel {
     } else {
       this.header.removeAttribute('title');
     }
+    this.syncOperationalState();
   }
 
   public setSafeContent(html: SafeHtml): void {

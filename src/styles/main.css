@@ -2064,6 +2064,28 @@ body.panel-resize-active iframe {
   background: rgba(255, 139, 139, 0.12);
 }
 
+/* Panels that cannot currently provide their feature stay visible for spatial
+   orientation, but recede so working sections are easier to scan. Retry and
+   sign-in controls remain interactive. */
+.panel.panel-is-inactive {
+  border-color: color-mix(in srgb, var(--border) 72%, #7f8790 28%);
+  filter: grayscale(0.92) saturate(0.35);
+  opacity: 0.56;
+  transition: opacity 160ms ease, filter 160ms ease, border-color 160ms ease;
+}
+
+.panel.panel-is-inactive:hover,
+.panel.panel-is-inactive:focus-within {
+  filter: grayscale(0.72) saturate(0.5);
+  opacity: 0.74;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.panel-is-inactive {
+    transition: none;
+  }
+}
+
 /* Panel Sort Toggle Button (#107) */
 .panel-sort-btn {
   background: var(--overlay-medium);
