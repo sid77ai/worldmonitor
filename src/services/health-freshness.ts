@@ -76,6 +76,15 @@ function getMappedSourceIds(): DataSourceId[] {
 }
 
 export async function refreshDataFreshnessFromHealth(options: RefreshHealthFreshnessOptions = {}): Promise<number> {
+  if (
+    typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
+    !options.endpoint &&
+    !options.urlResolver
+  ) {
+    return 0;
+  }
+
   const fetchFn = options.fetchFn ?? ((...args) => globalThis.fetch(...args));
   const endpoint = options.endpoint ?? '/api/health';
   const url = options.urlResolver

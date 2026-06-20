@@ -260,10 +260,14 @@ import { installSwUpdateHandler } from '@/bootstrap/sw-update';
 // Auto-reload on stale chunk 404s after deployment (Vite fires this for modulepreload failures).
 const chunkReloadStorageKey = installChunkReloadGuard(__APP_VERSION__);
 
-// Initialize Vercel Analytics (10% sampling to reduce costs)
-inject({
-  beforeSend: (event) => (Math.random() > 0.1 ? null : event),
-});
+const isLocalhostWebRuntime = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+// Production analytics are intentionally disabled during local development.
+if (!isLocalhostWebRuntime) {
+  inject({
+    beforeSend: (event) => (Math.random() > 0.1 ? null : event),
+  });
+}
 
 // Initialize dynamic meta tags for sharing
 initMetaTags();
@@ -360,7 +364,7 @@ if ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) {
   });
 }
 
-if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWorker' in navigator) {
+if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWorker' in navigator && !isLocalhostWebRuntime) {
   installSwUpdateHandler({ version: __APP_VERSION__ });
 
   const SW_UPDATE_SUCCESS_INTERVAL_MS = 60 * 60 * 1000;

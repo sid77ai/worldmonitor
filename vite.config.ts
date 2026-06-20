@@ -766,6 +766,7 @@ export default defineConfig(({ mode }) => {
 
   const isE2E = process.env.VITE_E2E === '1';
   const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
+  const useLocalApiHandlers = process.env.VITE_LOCAL_API === '1';
   const activeVariant = process.env.VITE_VARIANT || 'full';
   const activeMeta = VARIANT_META[activeVariant] || VARIANT_META.full;
 
@@ -803,7 +804,7 @@ export default defineConfig(({ mode }) => {
       rssProxyPlugin(),
       youtubeLivePlugin(),
       gpsjamDevPlugin(),
-      sebufApiPlugin(),
+      useLocalApiHandlers ? sebufApiPlugin() : null,
       brotliPrecompressPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
@@ -1111,6 +1112,31 @@ export default defineConfig(({ mode }) => {
             const apiKey = process.env.FRED_API_KEY || '';
             return `/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10${start ? `&observation_start=${start}` : ''}${end ? `&observation_end=${end}` : ''}`;
           },
+        },
+        // Generic API fallback for Docker-free local web development:
+        // - `npm run dev` proxies API requests to the deployed API
+        // - `npm run dev:api` enables sebufApiPlugin for local server handlers
+        // - specialized proxies above keep their existing upstreams
+        // - remaining /api/* requests proxy to the deployed API
+        '/api': {
+          target: 'https://api.worldmonitor.app',
+          changeOrigin: true,
+          secure: true,
+          cookieDomainRewrite: '',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              // Production CORS intentionally rejects arbitrary origins. Local
+              // web development is same-origin through this trusted proxy.
+              proxyReq.setHeader('Origin', 'https://worldmonitor.app');
+              proxyReq.setHeader('Referer', 'https://worldmonitor.app/');
+            });
+          },
+        },
+        '/maps': {
+          target: 'https://maps.worldmonitor.app',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/maps/, ''),
         },
         // RSS Feeds - BBC
         '/rss/bbc': {
