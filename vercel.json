@@ -1,4 +1,5 @@
 {
+  "buildCommand": "npm run build && node -e \"require('fs').rmSync('api',{recursive:true,force:true})\"",
   "ignoreCommand": "bash scripts/vercel-ignore.sh",
   "crons": [],
   "redirects": [
