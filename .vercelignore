@@ -4,7 +4,7 @@
 # Hobby-plan static deployment: the repository contains 60+ Edge Functions,
 # while Hobby deployments allow at most 12 functions. The dashboard remains
 # usable without them and marks unavailable data panels accordingly.
-api/
+/api/
 
 # Tauri build outputs
 src-tauri/target/
