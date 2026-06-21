@@ -1,6 +1,11 @@
 # Exclude local desktop build artifacts and sidecar binaries from deployments
 # These files are large and not needed by the Vercel-hosted frontend/API
 
+# Hobby-plan static deployment: the repository contains 60+ Edge Functions,
+# while Hobby deployments allow at most 12 functions. The dashboard remains
+# usable without them and marks unavailable data panels accordingly.
+api/
+
 # Tauri build outputs
 src-tauri/target/
 src-tauri/bundle/
