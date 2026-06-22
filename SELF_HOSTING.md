@@ -64,10 +64,11 @@ services:
       FINNHUB_API_KEY: ""         # https://finnhub.io (free tier)
       FRED_API_KEY: ""            # https://fred.stlouisfed.org/docs/api/api_key.html (free)
       EIA_API_KEY: ""             # https://www.eia.gov/opendata/ (free)
-      NWS_USER_AGENT: ""          # api.weather.gov contact string
 
       # ⚔️ Conflict & Unrest
-      ACLED_ACCESS_TOKEN: ""      # https://acleddata.com (free for researchers)
+      ACLED_EMAIL: ""             # https://acleddata.com (free for researchers)
+      ACLED_PASSWORD: ""          # OAuth flow — tokens auto-refresh (preferred over ACLED_ACCESS_TOKEN)
+      ACLED_ACCESS_TOKEN: ""      # Alternative: static token (expires every 24h)
       UCDP_ACCESS_TOKEN: ""       # https://ucdp.uu.se/apidocs/ (free, request token)
 
       # 🛰️ Earth Observation
@@ -75,7 +76,7 @@ services:
 
       # ✈️ Aviation
       AVIATIONSTACK_API: ""       # https://aviationstack.com (free tier)
-
+      TRAVELPAYOUTS_API_TOKEN: "" # https://travelpayouts.com (flight price search — optional)
       # 🚢 Maritime
       AISSTREAM_API_KEY: ""       # https://aisstream.io (free)
 
@@ -90,9 +91,6 @@ services:
   ais-relay:
     environment:
       AISSTREAM_API_KEY: ""       # same key as above — relay needs it too
-      FINNHUB_API_KEY: ""         # relay market seed loop
-      FRED_API_KEY: ""            # relay economic seed loop
-      UCDP_ACCESS_TOKEN: ""       # relay UCDP seed loop
 ```
 
 ### 💰 Free vs Paid

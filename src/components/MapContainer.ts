@@ -51,6 +51,7 @@ import type { IranEvent } from '@/services/conflict';
 import type { ImageryScene } from '@/generated/server/worldmonitor/imagery/v1/service_server';
 import type { WebcamEntry, WebcamCluster } from '@/generated/client/worldmonitor/webcam/v1/service_client';
 import type { TrafficAnomaly as ProtoTrafficAnomaly, DdosLocationHit } from '@/generated/client/worldmonitor/infrastructure/v1/service_client';
+import type { AcledConflictEvent } from '@/generated/client/worldmonitor/conflict/v1/service_client';
 import type { DiseaseOutbreakItem } from '@/services/disease-outbreaks';
 import type { CommercialVesselReport } from '@/services/commercial-vessels';
 import type { GetChokepointStatusResponse } from '@/services/supply-chain';
@@ -70,6 +71,10 @@ export interface MapContainerState {
   view: MapView;
   layers: MapLayers;
   timeRange: TimeRange;
+}
+
+export interface MapContainerOptions {
+  chrome?: boolean;
 }
 
 interface TechEventMarker {
@@ -103,6 +108,7 @@ export class MapContainer {
   private initialState: MapContainerState;
   private useDeckGL: boolean;
   private useGlobe: boolean;
+  private readonly chrome: boolean;
   private isResizingInternal = false;
   private resizeObserver: ResizeObserver | null = null;
   private globeInitToken = 0;
@@ -118,6 +124,7 @@ export class MapContainer {
 
   // ─── Data cache (survives map mode switches) ───────────────────────────────
   private cachedEarthquakes: Earthquake[] | null = null;
+  private cachedConflictEvents: AcledConflictEvent[] | null = null;
   private cachedWeatherAlerts: WeatherAlert[] | null = null;
   private cachedOutages: InternetOutage[] | null = null;
   private cachedAisDisruptions: AisDisruptionEvent[] | null = null;
@@ -161,9 +168,10 @@ export class MapContainer {
   private cachedImageryScenes: ImageryScene[] | null = null;
   private cachedWebcams: Array<WebcamEntry | WebcamCluster> | null = null;
 
-  constructor(container: HTMLElement, initialState: MapContainerState, preferGlobe = false) {
+  constructor(container: HTMLElement, initialState: MapContainerState, preferGlobe = false, options: MapContainerOptions = {}) {
     this.container = container;
     this.initialState = initialState;
+    this.chrome = options.chrome ?? true;
     this.isMobile = isMobileDevice();
     this.useGlobe = preferGlobe && this.hasGlobeSupport();
 
@@ -183,7 +191,15 @@ export class MapContainer {
       // Some Linux WebKitGTK builds expose only WebGL1, which can lead to
       // an empty/black render surface instead of a usable map.
       const gl2 = canvas.getContext('webgl2');
-      return !!gl2;
+      if (!gl2) return false;
+      const debugInfo = gl2.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        const renderer = String(gl2.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '').toLowerCase();
+        if (renderer.includes('swiftshader') || renderer.includes('llvmpipe') || renderer.includes('softpipe') || renderer.includes('software rasterizer')) {
+          return false;
+        }
+      }
+      return true;
     } catch {
       return false;
     }
@@ -219,7 +235,7 @@ export class MapContainer {
     // DeckGLMap mutates DOM early during construction. If initialization throws,
     // clear partial WebGL nodes before creating the SVG fallback.
     this.container.innerHTML = '';
-    this.svgMap = new MapComponent(this.container, this.initialState);
+    this.svgMap = new MapComponent(this.container, this.initialState, { chrome: this.chrome });
   }
 
   private createGlobeMap(): void {
@@ -227,6 +243,7 @@ export class MapContainer {
     try {
       this.globeMap = new GlobeMap(this.container, this.initialState, {
         onInitError: (error) => this.handleGlobeInitFailure(token, error),
+        chrome: this.chrome,
       });
     } catch (error) {
       this.handleGlobeInitFailure(token, error);
@@ -255,7 +272,7 @@ export class MapContainer {
         this.deckGLMap = new DeckGLMap(this.container, {
           ...this.initialState,
           view: this.initialState.view as DeckMapView,
-        });
+        }, { chrome: this.chrome });
       } catch (error) {
         console.warn('[MapContainer] DeckGL initialization failed, falling back to SVG map', error);
         this.initSvgMap('[MapContainer] Initializing SVG map (DeckGL fallback mode)');
@@ -334,6 +351,7 @@ export class MapContainer {
 
     // 2. Re-push all cached data
     if (this.cachedEarthquakes) this.setEarthquakes(this.cachedEarthquakes);
+    if (this.cachedConflictEvents) this.setConflictEvents(this.cachedConflictEvents);
     if (this.cachedWeatherAlerts) this.setWeatherAlerts(this.cachedWeatherAlerts);
     if (this.cachedOutages) this.setOutages(this.cachedOutages);
     if (this.cachedAisDisruptions != null && this.cachedAisDensity != null) this.setAisData(this.cachedAisDisruptions, this.cachedAisDensity);
@@ -381,6 +399,10 @@ export class MapContainer {
 
   public isDeckGLActive(): boolean {
     return this.useDeckGL;
+  }
+
+  public supportsLiveConflictEvents(): boolean {
+    return !this.useGlobe && !this.useDeckGL;
   }
 
   private destroyFlatMap(): void {
@@ -475,6 +497,13 @@ export class MapContainer {
     this.cachedEarthquakes = earthquakes;
     if (this.useGlobe) { this.globeMap?.setEarthquakes(earthquakes); return; }
     if (this.useDeckGL) { this.deckGLMap?.setEarthquakes(earthquakes); } else { this.svgMap?.setEarthquakes(earthquakes); }
+  }
+
+  public setConflictEvents(events: AcledConflictEvent[]): void {
+    this.cachedConflictEvents = events;
+    if (!this.useGlobe && !this.useDeckGL) {
+      this.svgMap?.setConflictEvents(events);
+    }
   }
 
   public setImageryScenes(scenes: ImageryScene[]): void {
@@ -1129,6 +1158,7 @@ export class MapContainer {
     this.cachedOnAircraftPositionsUpdate = null;
     this.cachedOnMapContextMenu = null;
     this.cachedEarthquakes = null;
+    this.cachedConflictEvents = null;
     this.cachedWeatherAlerts = null;
     this.cachedOutages = null;
     this.cachedAisDisruptions = null;

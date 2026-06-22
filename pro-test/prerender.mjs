@@ -110,7 +110,7 @@ const indexContent = `
 
   <h2>Explore more</h2>
   <ul>
-    <li><a href="https://www.worldmonitor.app/">World Monitor — geopolitics &amp; intelligence dashboard</a></li>
+    <li><a href="https://www.worldmonitor.app/dashboard">World Monitor — geopolitics &amp; intelligence dashboard</a></li>
     <li><a href="https://tech.worldmonitor.app/">Tech Monitor — AI labs, startups, cloud</a></li>
     <li><a href="https://finance.worldmonitor.app/">Finance Monitor — markets, central banks, forex</a></li>
     <li><a href="https://commodity.worldmonitor.app/">Commodity Monitor — mining, energy, supply chains</a></li>
@@ -118,20 +118,20 @@ const indexContent = `
     <li><a href="https://www.worldmonitor.app/blog/">World Monitor Blog — OSINT guides &amp; analysis</a></li>
     <li><a href="https://www.worldmonitor.app/blog/posts/what-is-worldmonitor-real-time-global-intelligence/">What is World Monitor?</a></li>
     <li><a href="https://www.worldmonitor.app/blog/posts/build-on-worldmonitor-developer-api-open-source/">Build on World Monitor — developer API &amp; MCP</a></li>
-    <li><a href="https://github.com/koala73/worldmonitor">Open source on GitHub (AGPL-3.0)</a></li>
+    <li>Open source under AGPL-3.0</li>
     <li><a href="https://www.wired.me/story/the-music-streaming-ceo-who-built-a-global-war-map">Featured in WIRED</a></li>
   </ul>
 </div>
 ${HIDE_SCRIPT}`;
 
-// /welcome landing page — reads ONLY en.welcome.* keys.
+// Root welcome landing page — reads ONLY en.welcome.* keys.
 const w = en.welcome;
 const momentTitle = (moment) => moment.title ?? `${moment.title1} ${moment.title2}`;
 const welcomeContent = `
 <div id="seo-prerender" lang="en">
   <h1>${w.hero.headline1} ${w.hero.headline2}</h1>
   <p>${w.hero.eyebrow}. ${w.hero.sub}</p>
-  <p>${w.hero.trustUsers} · ${w.hero.trustOpenSource}. <a href="https://www.worldmonitor.app/">${w.hero.ctaPrimary}</a> — ${w.hero.ctaFree}.</p>
+  <p>${w.hero.trustUsers} · ${w.hero.trustOpenSource}. <a href="https://www.worldmonitor.app/dashboard">${w.hero.ctaPrimary}</a> — ${w.hero.ctaFree}.</p>
 
   <h2>${w.live.title}</h2>
   <p>${w.live.subtitle}</p>
@@ -213,14 +213,14 @@ const welcomeContent = `
 
   <h2>${w.cta.title}</h2>
   <p>${w.cta.subtitle}</p>
-  <p><a href="https://www.worldmonitor.app/">${w.cta.button}</a> — ${w.cta.note}. <a href="https://www.worldmonitor.app/pro">${w.cta.secondary}</a></p>
+  <p><a href="https://www.worldmonitor.app/dashboard">${w.cta.button}</a> — ${w.cta.note}. <a href="https://www.worldmonitor.app/pro">${w.cta.secondary}</a></p>
 
   <h2>Explore more</h2>
   <ul>
     <li><a href="https://www.worldmonitor.app/pro">World Monitor Pro — AI analyst, digest &amp; MCP</a></li>
     <li><a href="https://www.worldmonitor.app/blog/">World Monitor Blog — OSINT guides &amp; analysis</a></li>
     <li><a href="https://www.worldmonitor.app/blog/posts/what-is-worldmonitor-real-time-global-intelligence/">What is World Monitor?</a></li>
-    <li><a href="https://github.com/koala73/worldmonitor">Open source on GitHub (AGPL-3.0)</a></li>
+    <li>Open source under AGPL-3.0</li>
     <li><a href="https://www.wired.me/story/the-music-streaming-ceo-who-built-a-global-war-map">Featured in WIRED</a></li>
   </ul>
 </div>

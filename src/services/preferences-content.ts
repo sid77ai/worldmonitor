@@ -378,9 +378,9 @@ export function renderPreferences(host: PreferencesHost): PreferencesResult {
     html += `</div></details>`;
   }
 
-  // ── Data & Community group ──
+  // ── Data group ──
   html += `<details class="wm-pref-group">`;
-  html += `<summary>${t('preferences.dataAndCommunity')}</summary>`;
+  html += `<summary>Data</summary>`;
   html += `<div class="wm-pref-group-content">`;
   html += `
     <div class="us-data-mgmt">
@@ -390,10 +390,6 @@ export function renderPreferences(host: PreferencesHost): PreferencesResult {
     </div>
     <div class="us-data-mgmt-toast" id="usDataMgmtToast"></div>
   `;
-  html += `<a href="https://discord.gg/re63kWKxaz" target="_blank" rel="noopener noreferrer" class="us-discussion-link">
-    <span class="us-discussion-dot"></span>
-    <span>${t('components.community.joinDiscussion')}</span>
-  </a>`;
   html += `</div></details>`;
 
   // AI status footer (web-only)

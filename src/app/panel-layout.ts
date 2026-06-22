@@ -4,7 +4,7 @@ import { normalizeExclusiveChoropleths } from '@/components/resilience-choroplet
 import { replayPendingCalls, clearAllPendingCalls } from '@/app/pending-panel-data';
 import { getAlertsNearLocation } from '@/services/geo-convergence';
 import { effectivePubDateMs } from '@/services/feed-date';
-import type { ClusteredEvent, MapLayers } from '@/types';
+import type { ClusteredEvent, MapLayers, PanelConfig } from '@/types';
 import type { RelatedAsset } from '@/types';
 import type { TheaterPostureSummary } from '@/services/military-surge';
 import {
@@ -104,6 +104,7 @@ import {
   isPanelInVariantDefaults,
   getEffectivePanelConfig,
   isPanelEntitled,
+  enforceFreePanelLimit,
 } from '@/config';
 import { resolveNewsCategories, enabledNewsCategoryKeys } from '@/config/feed-resolution';
 import { BETA_MODE } from '@/config/beta';
@@ -113,7 +114,7 @@ import { trackCriticalBannerAction } from '@/services/analytics';
 import { getStoredMapModePreference } from '@/services/map-mode-preference';
 import { CustomWidgetPanel } from '@/components/CustomWidgetPanel';
 import { openWidgetChatModal } from '@/components/WidgetChatModal';
-import { loadWidgets, saveWidget } from '@/services/widget-store';
+import { loadWidgets, saveWidget, isProUser } from '@/services/widget-store';
 import type { CustomWidgetSpec } from '@/services/widget-store';
 import { initEntitlementSubscription, destroyEntitlementSubscription, isEntitled, hasTier, getEntitlementState, onEntitlementChange, shouldReloadOnEntitlementChange } from '@/services/entitlements';
 import { initSubscriptionWatch, destroySubscriptionWatch } from '@/services/billing';
@@ -123,6 +124,15 @@ import { initCheckoutOverlay, destroyCheckoutOverlay, showCheckoutSuccess, consu
 import { showCheckoutFailureBanner } from '@/components/checkout-failure-banner';
 import { McpDataPanel } from '@/components/McpDataPanel';
 import { openMcpConnectModal } from '@/components/McpConnectModal';
+import { PanelTabBar } from '@/components/PanelTabBar';
+import {
+  loadTabsState,
+  saveTabsState,
+  generateTabId,
+  buildDefaultTabPanels,
+} from '@/services/tab-store';
+import type { PanelTab, TabsState } from '@/services/tab-store';
+import { showToast } from '@/utils';
 import { loadMcpPanels, saveMcpPanel } from '@/services/mcp-store';
 import type { McpPanelSpec } from '@/services/mcp-store';
 import { getAuthState, subscribeAuthState } from '@/services/auth-state';
@@ -197,6 +207,8 @@ export class PanelLayoutManager implements AppModule {
   private criticalBannerEl: HTMLElement | null = null;
   private mobilePanelNav: MobilePanelNav | null = null;
   private mobileMapCollapseBtn: HTMLButtonElement | null = null;
+  private panelTabBar: PanelTabBar | null = null;
+  private tabsState: TabsState | null = null;
   private aviationCommandBar: AviationCommandBar | null = null;
   private readonly applyTimeRangeFilterDebounced: (() => void) & { cancel(): void };
   private unsubscribeAuth: (() => void) | null = null;
@@ -385,6 +397,8 @@ export class PanelLayoutManager implements AppModule {
     this.mobilePanelNav?.destroy();
     this.mobilePanelNav = null;
     this.mobileMapCollapseBtn = null;
+    this.panelTabBar?.destroy();
+    this.panelTabBar = null;
     // Clean up happy variant panels
     this.ctx.tvMode?.destroy();
     this.ctx.tvMode = null;
@@ -491,7 +505,7 @@ export class PanelLayoutManager implements AppModule {
         const vHref = (v: string, prod: string) => local || SITE_VARIANT === v ? '#' : prod;
         const vTarget = (v: string) => !local && SITE_VARIANT !== v && inIframe ? 'target="_blank" rel="noopener"' : '';
         return `
-            <a href="${vHref('full', 'https://worldmonitor.app')}"
+            <a href="${vHref('full', 'https://worldmonitor.app/dashboard')}"
                class="variant-option ${SITE_VARIANT === 'full' ? 'active' : ''}"
                data-variant="full"
                ${vTarget('full')}
@@ -546,12 +560,7 @@ export class PanelLayoutManager implements AppModule {
             </a>`;
       })()}</div>
           <span class="logo">SID MONITOR</span><span class="logo-mobile">Sid's World Monitor</span><span class="version">v${__APP_VERSION__}</span>${BETA_MODE ? '<span class="beta-badge">BETA</span>' : ''}
-          <a href="https://github.com/sid77ai" target="_blank" rel="noopener" class="credit-link">
-            <span class="credit-text">by Sid</span>
-          </a>
-          <a href="https://github.com/sid77ai/worldmonitor" target="_blank" rel="noopener" class="github-link" title="${t('header.viewOnGitHub')}">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          </a>
+          <span class="credit-text">by Sid</span>
           <button class="mobile-settings-btn" id="mobileSettingsBtn" title="${t('header.settings')}">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
@@ -632,10 +641,6 @@ export class PanelLayoutManager implements AppModule {
           <span class="mobile-menu-item-icon">${getCurrentTheme() === 'dark' ? '☀️' : '🌙'}</span>
           <span class="mobile-menu-item-label">${getCurrentTheme() === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
-        <a class="mobile-menu-item" href="https://github.com/sid77ai" target="_blank" rel="noopener">
-          <span class="mobile-menu-item-icon">GH</span>
-          <span class="mobile-menu-item-label">sid77ai</span>
-        </a>
         <div class="mobile-menu-divider"></div>
         <div class="mobile-menu-footer-links">
           <a href="${this.ctx.isDesktopApp ? 'https://worldmonitor.app/blog/' : 'https://www.worldmonitor.app/blog/'}" target="_blank" rel="noopener">Blog</a>
@@ -663,6 +668,7 @@ export class PanelLayoutManager implements AppModule {
         </button>`
       ).join('')}
       </div>
+      <div class="dashboard-tabs-mount" id="panelTabsMount"></div>
       <div class="main-content${this.ctx.isDesktopApp ? ' desktop-grid' : ''}">
         <div class="map-section" id="mapSection">
           <div class="panel-header">
@@ -691,7 +697,7 @@ export class PanelLayoutManager implements AppModule {
           <div class="map-bottom-grid" id="mapBottomGrid"></div>
         </div>
         <div class="map-width-resize-handle" id="mapWidthResizeHandle"></div>
-        <div class="panels-grid" id="panelsGrid"></div>
+        <div class="panels-grid" id="panelsGrid" role="tabpanel"></div>
         <button class="search-mobile-fab" id="searchMobileFab" aria-label="Search">\u{1F50D}</button>
       </div>
       <footer class="site-footer">
@@ -699,13 +705,12 @@ export class PanelLayoutManager implements AppModule {
           <img src="/favico/favicon-32x32.png" alt="" width="28" height="28" class="site-footer-icon" />
           <div class="site-footer-brand-text">
             <span class="site-footer-name">SID'S WORLD MONITOR</span>
-            <span class="site-footer-sub">v${__APP_VERSION__} &middot; <a href="https://github.com/sid77ai" target="_blank" rel="noopener" class="site-footer-credit">by Sid</a></span>
+            <span class="site-footer-sub">v${__APP_VERSION__} &middot; by Sid</span>
           </div>
         </div>
         <nav>
           <a href="${this.ctx.isDesktopApp ? 'https://worldmonitor.app/blog/' : 'https://www.worldmonitor.app/blog/'}" target="_blank" rel="noopener">Blog</a>
           <a href="${this.ctx.isDesktopApp ? 'https://worldmonitor.app/docs' : 'https://www.worldmonitor.app/docs'}" target="_blank" rel="noopener">Docs</a>
-          <a href="https://github.com/sid77ai/worldmonitor" target="_blank" rel="noopener">GitHub</a>
           ${this.ctx.isDesktopApp ? '' : `<span id="footerDownloadMount"></span>`}
         </nav>
         <span class="site-footer-copy">&copy; ${new Date().getFullYear()} Sid</span>
@@ -714,10 +719,203 @@ export class PanelLayoutManager implements AppModule {
 
     await this.createPanels();
 
+    this.initPanelTabs();
+
     if (this.ctx.isMobile) {
       this.setupMobileMapToggle();
       this.setupMobilePanelNav();
     }
+  }
+
+  // ============================================
+  // Dashboard tabs — named, persistent panel workspaces
+  // ============================================
+
+  private initPanelTabs(): void {
+    const mount = document.getElementById('panelTabsMount');
+    if (!mount) return;
+
+    let state = loadTabsState();
+    if (!state) {
+      // First run — wrap the user's current layout in an initial tab so
+      // nothing changes visually until they create a second tab.
+      const initial: PanelTab = {
+        id: generateTabId(),
+        name: t('dashboardTabs.defaultName'),
+        ...this.captureCurrentTabState(),
+      };
+      state = { activeTabId: initial.id, tabs: [initial] };
+      saveTabsState(state);
+    } else {
+      // Clamp stored snapshots to the current free-tier cap so a workspace
+      // saved while Pro (or persisted before the cap existed) can't re-enable
+      // an over-cap layout when the user later switches to it. applyTabPanelState
+      // re-clamps on apply too; this keeps the persisted store self-healing.
+      const pro = isProUser();
+      let healedSnapshots = false;
+      for (const tab of state.tabs) {
+        const clamped = enforceFreePanelLimit(tab.panelSettings, pro);
+        if (this.panelSettingsEnabledStateChanged(tab.panelSettings, clamped)) {
+          healedSnapshots = true;
+        }
+        tab.panelSettings = clamped;
+      }
+      if (healedSnapshots) saveTabsState(state);
+    }
+    this.tabsState = state;
+
+    this.panelTabBar = new PanelTabBar(() => this.tabsState!, {
+      onSelect: (id) => this.switchToTab(id),
+      onAdd: () => this.addTab(),
+      onRename: (id, name) => this.renameTab(id, name),
+      onDelete: (id) => this.deleteTab(id),
+    });
+    mount.appendChild(this.panelTabBar.getElement());
+  }
+
+  private panelSettingsEnabledStateChanged(
+    before: Record<string, PanelConfig>,
+    after: Record<string, PanelConfig>,
+  ): boolean {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const key of keys) {
+      if (before[key]?.enabled !== after[key]?.enabled) return true;
+    }
+    return false;
+  }
+
+  /** Capture the live panel state (settings + order) for a tab snapshot. */
+  private captureCurrentTabState(): Pick<PanelTab, 'panelSettings' | 'panelOrder' | 'bottomSet'> {
+    // Persist the live DOM order first so the snapshot reflects any drags.
+    this.savePanelOrder();
+    return {
+      panelSettings: JSON.parse(JSON.stringify(this.ctx.panelSettings)) as Record<string, PanelConfig>,
+      panelOrder: [...this.resolvedPanelOrder],
+      bottomSet: Array.from(this.bottomSetMemory),
+    };
+  }
+
+  /** Refresh the active tab's snapshot from live state (called on switch-away). */
+  private snapshotActiveTab(): void {
+    if (!this.tabsState) return;
+    const active = this.tabsState.tabs.find((t) => t.id === this.tabsState!.activeTabId);
+    if (!active) return;
+    Object.assign(active, this.captureCurrentTabState());
+  }
+
+  private switchToTab(tabId: string): void {
+    if (!this.tabsState || tabId === this.tabsState.activeTabId) return;
+    const target = this.tabsState.tabs.find((t) => t.id === tabId);
+    if (!target) return;
+
+    this.snapshotActiveTab();
+    this.tabsState.activeTabId = tabId;
+    saveTabsState(this.tabsState);
+
+    this.applyTabPanelState(target.panelSettings, target.panelOrder, target.bottomSet);
+    this.panelTabBar?.refresh();
+  }
+
+  private addTab(): void {
+    if (!this.tabsState) return;
+    this.snapshotActiveTab();
+
+    const defaults = buildDefaultTabPanels(this.ctx.panelSettings);
+    // The variant default set can exceed FREE_MAX_PANELS (e.g. 81 panels in the
+    // full variant); clamp it to the free-tier cap so a new tab can't bypass
+    // the limit that settings/search/boot all enforce.
+    const tab: PanelTab = {
+      id: generateTabId(),
+      name: t('dashboardTabs.newTabName'),
+      panelSettings: enforceFreePanelLimit(defaults.panelSettings, isProUser()),
+      panelOrder: defaults.panelOrder,
+      bottomSet: [],
+    };
+    this.tabsState.tabs.push(tab);
+    this.tabsState.activeTabId = tab.id;
+    saveTabsState(this.tabsState);
+
+    this.applyTabPanelState(tab.panelSettings, tab.panelOrder, tab.bottomSet);
+    this.panelTabBar?.refresh();
+    showToast(t('dashboardTabs.newTabCreated'));
+  }
+
+  private renameTab(tabId: string, name: string): void {
+    if (!this.tabsState) return;
+    const tab = this.tabsState.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    tab.name = name;
+    saveTabsState(this.tabsState);
+    this.panelTabBar?.refresh();
+  }
+
+  private deleteTab(tabId: string): void {
+    if (!this.tabsState || this.tabsState.tabs.length <= 1) return;
+    const idx = this.tabsState.tabs.findIndex((t) => t.id === tabId);
+    if (idx === -1) return;
+    const wasActive = this.tabsState.activeTabId === tabId;
+    const [removed] = this.tabsState.tabs.splice(idx, 1);
+
+    if (wasActive) {
+      const fallback = this.tabsState.tabs[Math.max(0, idx - 1)]!;
+      this.tabsState.activeTabId = fallback.id;
+      saveTabsState(this.tabsState);
+      this.applyTabPanelState(fallback.panelSettings, fallback.panelOrder, fallback.bottomSet);
+    } else {
+      saveTabsState(this.tabsState);
+    }
+    this.panelTabBar?.refresh();
+    showToast(t('dashboardTabs.tabDeleted', { name: removed!.name }));
+  }
+
+  /**
+   * Load a tab's panel snapshot into the live global state and re-apply
+   * the layout. Mirrors the mission-preset apply pipeline (panels only —
+   * map layers, view, and time range stay global across tabs).
+   */
+  private applyTabPanelState(
+    panelSettings: Record<string, PanelConfig>,
+    panelOrder: string[],
+    bottomSet: string[],
+  ): void {
+    const isDynamicPanel = (k: string) =>
+      !ALL_PANELS[k] && (k === 'runtime-config' || k.startsWith('cw-') || k.startsWith('mcp-'));
+
+    const next: Record<string, PanelConfig> = {};
+    for (const [key, config] of Object.entries(panelSettings)) {
+      next[key] = { ...config };
+    }
+    // Carry over panels missing from the snapshot: dynamic panels (custom
+    // widgets / MCP / desktop config created after the snapshot) keep their
+    // current config so they don't get orphaned visible-but-untracked;
+    // panels added to the app since the snapshot seed from variant defaults
+    // (same formula as the App.ts settings merge).
+    for (const [key, config] of Object.entries(this.ctx.panelSettings)) {
+      if (next[key]) continue;
+      if (isDynamicPanel(key)) {
+        next[key] = { ...config };
+      } else {
+        const effective = getEffectivePanelConfig(key, SITE_VARIANT);
+        next[key] = { ...effective, enabled: isPanelInVariantDefaults(key) && effective.enabled };
+      }
+    }
+
+    // Final free-tier guarantee: this is the only path that writes a tab's
+    // panel selection into STORAGE_KEYS.panels, so clamping here means no tab
+    // operation (add / switch / delete-fallback) can ever persist an over-cap
+    // workspace, regardless of how the snapshot was produced.
+    const capped = enforceFreePanelLimit(next, isProUser());
+
+    this.ctx.panelSettings = capped;
+    saveToStorage(STORAGE_KEYS.panels, capped);
+    saveToStorage(this.ctx.PANEL_ORDER_KEY, panelOrder);
+    saveToStorage(this.ctx.PANEL_ORDER_KEY + '-bottom-set', bottomSet);
+
+    this.applyPanelSettings();
+    this.applySavedPanelOrder();
+    this.ctx.unifiedSettings?.refreshPanelToggles();
+    this.mountLiveNewsIfReady();
+    this.scheduleLoadAllData();
   }
 
   private setupMobilePanelNav(): void {
