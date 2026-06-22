@@ -82,3 +82,13 @@ describe('BarentsWatch relay enrichment', () => {
     assert.match(relaySource, /function connectUpstream\(\) \{\s*if \(!API_KEY\) return;/);
   });
 });
+
+describe('Public maritime snapshot health gate', () => {
+  it('keeps the read-only vessel snapshot available to anonymous dashboard visitors', () => {
+    const gateway = readFileSync(resolve(root, 'server/gateway.ts'), 'utf8');
+    assert.match(
+      gateway,
+      /PUBLIC_NO_AUTH_RPC_PATHS[\s\S]*['"]\/api\/maritime\/v1\/get-vessel-snapshot['"]/,
+    );
+  });
+});

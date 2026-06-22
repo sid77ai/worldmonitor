@@ -218,7 +218,7 @@ export const LAYER_EXPLANATIONS: Partial<Record<keyof MapLayers, LayerExplanatio
     category: 'Maritime',
     purpose: 'Shows vessel density and AIS disruption signals around strategic waters and chokepoints.',
     source: 'AISStream and BarentsWatch relay snapshots, Global Fishing Watch AIS/SAR tiles, the WorldMonitor maritime service, and chokepoint disruption classifiers.',
-    freshness: 'Live relay snapshots are rebuilt every 5 seconds by default; Global Fishing Watch AIS presence is delayed about 96 hours and unmatched Sentinel-1 SAR detections about five days.',
+    freshness: 'Live relay snapshots are rebuilt every 5 seconds by default and use a 5 minute base server cache; Global Fishing Watch AIS presence is delayed about 96 hours and unmatched Sentinel-1 SAR detections about five days.',
     confidence: 'Useful for maritime anomaly screening, but AIS is self-reported and vessels can go dark.',
     limitations: [
       'Terrestrial AIS coverage is uneven, with weaker Middle East, Asia, and open-ocean visibility documented.',
