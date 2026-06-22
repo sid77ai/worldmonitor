@@ -27,6 +27,8 @@ Do not paste real API keys into Notion, GitHub issues, chats, or committed files
 | NASA FIRMS | https://firms.modaps.eosdis.nasa.gov/api/map_key/ | `NASA_FIRMS_API_KEY` | Enter your email and copy the emailed MAP_KEY. |
 | UCDP | https://ucdp.uu.se/apidocs/ | `UCDP_ACCESS_TOKEN` | Email the API maintainer using the template below. |
 | AISStream | https://aisstream.io/authenticate | `AISSTREAM_API_KEY` | Sign in with GitHub and create an API key. |
+| BarentsWatch | https://www.barentswatch.no/minside/ | `BARENTSWATCH_CLIENT_ID`, `BARENTSWATCH_CLIENT_SECRET` | Create an AIS API client. |
+| Global Fishing Watch | https://globalfishingwatch.org/our-apis/ | `GFW_API_TOKEN` | Register, create an API token, and retain required attribution. |
 | NWS Weather | https://api.weather.gov | `NWS_USER_AGENT` | Replace the placeholder email in `.env` and `.env.local`. |
 | Open-Meteo | https://open-meteo.com | none | No key required. |
 | FRED | https://fred.stlouisfed.org/docs/api/api_key.html | `FRED_API_KEY` | Log in to a FRED account and request/view an app key. |

@@ -55,7 +55,7 @@ import type { ClimateAnomaly } from '@/services/climate';
 import type { RadiationObservation } from '@/services/radiation';
 import { ArcLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
-import { H3HexagonLayer, TripsLayer } from '@deck.gl/geo-layers';
+import { H3HexagonLayer, MVTLayer, TripsLayer } from '@deck.gl/geo-layers';
 import { PathStyleExtension } from '@deck.gl/extensions';
 import type { WeatherAlert } from '@/services/weather';
 import { escapeHtml } from '@/utils/sanitize';
@@ -128,6 +128,7 @@ import { hasPremiumAccess } from '@/services/panel-gating';
 import { trackGateHit } from '@/services/analytics';
 import { MapPopup, type PopupType } from './MapPopup';
 import { renderMilitaryVesselTooltipHtml } from './deckgl-tooltip-renderers';
+import { toApiUrl } from '@/services/runtime';
 import type { GetChokepointStatusResponse } from '@/services/supply-chain';
 import type { CommercialVesselReport } from '@/services/commercial-vessels';
 import {
@@ -1847,6 +1848,10 @@ export class DeckGLMap {
       layers.push(this.createAisDensityLayer());
     }
 
+    if (mapLayers.ais) {
+      layers.push(...this.createGfwMaritimeLayers());
+    }
+
     // AIS disruptions layer (spoofing/jamming)
     if (mapLayers.ais && this.aisDisruptions.length > 0) {
       layers.push(this.createAisDisruptionsLayer());
@@ -3161,6 +3166,40 @@ export class DeckGLMap {
     });
   }
 
+  private createGfwMaritimeLayers(): MVTLayer[] {
+    const tileUrl = (dataset: 'presence' | 'sar') => toApiUrl(
+      `/api/gfw-tile?dataset=${dataset}&z={z}&x={x}&y={y}`,
+    );
+    return [
+      new MVTLayer({
+        id: 'gfw-ais-presence-layer',
+        data: tileUrl('presence'),
+        minZoom: 0,
+        maxZoom: 12,
+        filled: true,
+        stroked: false,
+        getFillColor: [40, 145, 255, 45],
+        getPointRadius: 2,
+        pointRadiusMinPixels: 1,
+        pickable: false,
+      }),
+      new MVTLayer({
+        id: 'gfw-sar-dark-vessels-layer',
+        data: tileUrl('sar'),
+        minZoom: 0,
+        maxZoom: 12,
+        filled: true,
+        stroked: true,
+        getFillColor: [255, 72, 72, 180],
+        getLineColor: [255, 210, 120, 220],
+        getLineWidth: 1,
+        getPointRadius: 4,
+        pointRadiusMinPixels: 3,
+        pickable: true,
+      }),
+    ];
+  }
+
   private createLiveTankersLayer(): ScatterplotLayer {
     return new ScatterplotLayer({
       id: 'live-tankers-layer',
@@ -4419,6 +4458,14 @@ export class DeckGLMap {
     if (!info.object) return null;
 
     const rawLayerId = info.layer?.id || '';
+    if (rawLayerId.includes('gfw-sar-dark-vessels-layer')) {
+      const props = (info.object as { properties?: Record<string, unknown> }).properties ?? {};
+      return {
+        html: `<strong>Unmatched SAR vessel detection</strong><br>`
+          + `Detections: ${escapeHtml(String(props.detections ?? props.value ?? 1))}<br>`
+          + '<small>Delayed ~5 days · Source: Global Fishing Watch / Sentinel-1</small>',
+      };
+    }
     const layerId = rawLayerId.endsWith('-ghost') ? rawLayerId.slice(0, -6) : rawLayerId;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const obj = info.object as any;
@@ -5216,7 +5263,7 @@ export class DeckGLMap {
 
     const authorBadge = document.createElement('div');
     authorBadge.className = 'map-author-badge';
-    authorBadge.textContent = '© Sid';
+    authorBadge.textContent = '© Sid · AIS/SAR: GFW';
     toggles.appendChild(authorBadge);
 
     this.container.appendChild(toggles);
@@ -6820,6 +6867,16 @@ export class DeckGLMap {
       target.style.display = 'none';
       toggle.setAttribute('data-layer-hidden', '');
     }
+  }
+
+  public setLayerToggleEnabled(layer: keyof MapLayers, enabled: boolean, reason?: string): void {
+    const toggle = this.container.querySelector(`.layer-toggle[data-layer="${layer}"]`) as HTMLElement | null;
+    const input = toggle?.querySelector('input') as HTMLInputElement | null;
+    if (!toggle || !input || toggle.classList.contains('layer-toggle-locked')) return;
+    input.disabled = !enabled;
+    toggle.classList.toggle('service-unavailable', !enabled);
+    toggle.title = enabled ? '' : (reason || 'Service unavailable');
+    toggle.setAttribute('aria-disabled', String(!enabled));
   }
 
   public setLayerLoading(layer: keyof MapLayers, loading: boolean): void {

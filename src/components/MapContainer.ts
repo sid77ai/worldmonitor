@@ -155,6 +155,7 @@ export class MapContainer {
   private cachedSpeciesRecovery: SpeciesRecovery[] | null = null;
   private cachedRenewableInstallations: RenewableInstallation[] | null = null;
   private cachedHotspotActivity: NewsItem[] | null = null;
+  private layerToggleAvailability = new Map<keyof MapLayers, { enabled: boolean; reason?: string }>();
   private cachedEscalationFlights: MilitaryFlight[] | null = null;
   private cachedEscalationVessels: MilitaryVessel[] | null = null;
   private cachedImageryScenes: ImageryScene[] | null = null;
@@ -327,6 +328,9 @@ export class MapContainer {
     if (this.cachedOnHotspotClicked) this.onHotspotClicked(this.cachedOnHotspotClicked);
     if (this.cachedOnAircraftPositionsUpdate) this.setOnAircraftPositionsUpdate(this.cachedOnAircraftPositionsUpdate);
     if (this.cachedOnMapContextMenu) this.onMapContextMenu(this.cachedOnMapContextMenu);
+    for (const [layer, availability] of this.layerToggleAvailability) {
+      this.applyLayerToggleEnabled(layer, availability.enabled, availability.reason);
+    }
 
     // 2. Re-push all cached data
     if (this.cachedEarthquakes) this.setEarthquakes(this.cachedEarthquakes);
@@ -872,6 +876,20 @@ export class MapContainer {
       this.deckGLMap?.hideLayerToggle(layer);
     } else {
       this.svgMap?.hideLayerToggle(layer);
+    }
+  }
+
+  public setLayerToggleEnabled(layer: keyof MapLayers, enabled: boolean, reason?: string): void {
+    this.layerToggleAvailability.set(layer, { enabled, reason });
+    this.applyLayerToggleEnabled(layer, enabled, reason);
+  }
+
+  private applyLayerToggleEnabled(layer: keyof MapLayers, enabled: boolean, reason?: string): void {
+    if (this.useGlobe) { this.globeMap?.setLayerToggleEnabled(layer, enabled, reason); return; }
+    if (this.useDeckGL) {
+      this.deckGLMap?.setLayerToggleEnabled(layer, enabled, reason);
+    } else {
+      this.svgMap?.setLayerToggleEnabled(layer, enabled, reason);
     }
   }
 

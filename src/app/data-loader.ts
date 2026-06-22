@@ -2873,6 +2873,11 @@ export class DataLoaderManager implements AppModule {
 
       const shippingCount = disruptions.length + density.length;
       const shippingStatus = shippingCount > 0 ? 'ok' : (aisStatus.connected ? 'warning' : 'error');
+      this.ctx.map?.setLayerToggleEnabled(
+        'ais',
+        aisStatus.connected,
+        'AIS is unavailable while the data backend is starting or unhealthy',
+      );
       this.ctx.statusPanel?.updateFeed('Shipping', {
         status: shippingStatus,
         itemCount: shippingCount,
@@ -2904,6 +2909,11 @@ export class DataLoaderManager implements AppModule {
       }
     } catch (error) {
       this.ctx.map?.setLayerReady('ais', false);
+      this.ctx.map?.setLayerToggleEnabled(
+        'ais',
+        false,
+        'AIS is unavailable while the data backend is starting or unhealthy',
+      );
       renderAisOperatorWatch(null);
       this.ctx.statusPanel?.updateFeed('Shipping', { status: 'error', errorMessage: String(error) });
       this.ctx.statusPanel?.updateApi('AISStream', { status: 'error' });

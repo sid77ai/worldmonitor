@@ -85,6 +85,7 @@ function toLegacyCandidateReport(proto: ProtoCandidateReport): SnapshotCandidate
 
 const isClientRuntime = typeof window !== 'undefined';
 const aisConfigured = isClientRuntime && import.meta.env.VITE_ENABLE_AIS !== 'false';
+let backendHealthConfirmed = false;
 
 export function isAisConfigured(): boolean {
   return aisConfigured && isFeatureAvailable('aisRelay');
@@ -159,13 +160,16 @@ interface ParsedSnapshot {
 }
 
 async function fetchSnapshotPayload(includeCandidates: boolean, signal?: AbortSignal): Promise<ParsedSnapshot | null> {
-  const response = await snapshotBreaker.execute(
-    async () => client.getVesselSnapshot(
-      { neLat: 0, neLon: 0, swLat: 0, swLon: 0, includeCandidates, includeTankers: false },
-      { signal },
-    ),
-    emptySnapshotFallback,
+  const request = () => client.getVesselSnapshot(
+    { neLat: 0, neLon: 0, swLat: 0, swLon: 0, includeCandidates, includeTankers: false },
+    { signal },
   );
+  // A persisted circuit-breaker fallback is useful for continuity, but it
+  // must never count as proof that a separately deployed backend is healthy.
+  // Require one live response before allowing cached snapshots again.
+  const response = backendHealthConfirmed
+    ? await snapshotBreaker.execute(request, emptySnapshotFallback)
+    : await request();
 
   const snapshot = response.snapshot;
   if (!snapshot) return null;
@@ -264,6 +268,7 @@ async function pollSnapshot(force = false, signal?: AbortSignal): Promise<void> 
     latestDisruptions = snapshot.disruptions;
     latestDensity = snapshot.density;
     latestStatus = snapshot.status;
+    backendHealthConfirmed = snapshot.status.connected;
     lastPollAt = Date.now();
 
     if (includeCandidates) {
@@ -284,6 +289,7 @@ async function pollSnapshot(force = false, signal?: AbortSignal): Promise<void> 
     }
   } catch {
     latestStatus.connected = false;
+    backendHealthConfirmed = false;
   } finally {
     inFlight = false;
   }
@@ -321,12 +327,19 @@ export function initAisStream(): void {
   startPolling();
 }
 
+export async function probeAisBackendHealth(): Promise<boolean> {
+  if (!isAisConfigured()) return false;
+  await pollSnapshot(true);
+  return backendHealthConfirmed;
+}
+
 export function disconnectAisStream(): void {
   pollLoop?.stop();
   pollLoop = null;
   isPolling = false;
   inFlight = false;
   latestStatus.connected = false;
+  backendHealthConfirmed = false;
 }
 
 export function getAisStatus(): { connected: boolean; vessels: number; messages: number } {

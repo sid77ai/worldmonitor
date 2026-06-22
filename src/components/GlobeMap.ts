@@ -555,6 +555,7 @@ export class GlobeMap {
 
   // Overlay UI elements
   private layerTogglesEl: HTMLElement | null = null;
+  private layerToggleAvailability = new Map<keyof MapLayers, { enabled: boolean; reason?: string }>();
   private tooltipEl: HTMLElement | null = null;
   private tooltipHideTimer: ReturnType<typeof setTimeout> | null = null;
   private satHoverStyle: HTMLStyleElement | null = null;
@@ -1950,6 +1951,9 @@ export class GlobeMap {
     }, { passive: false });
 
     this.layerTogglesEl = el;
+    for (const [layer, availability] of this.layerToggleAvailability) {
+      this.setLayerToggleEnabled(layer, availability.enabled, availability.reason);
+    }
   }
 
   private showLayerExplanation(layer: keyof MapLayers): void {
@@ -2805,6 +2809,16 @@ export class GlobeMap {
     const toggle = this.layerTogglesEl?.querySelector(`.layer-toggle[data-layer="${layer}"]`);
     toggle?.closest('.layer-toggle-row')?.remove();
     toggle?.remove();
+  }
+  public setLayerToggleEnabled(layer: keyof MapLayers, enabled: boolean, reason?: string): void {
+    this.layerToggleAvailability.set(layer, { enabled, reason });
+    const toggle = this.layerTogglesEl?.querySelector(`.layer-toggle[data-layer="${layer}"]`) as HTMLElement | null;
+    const input = toggle?.querySelector('input') as HTMLInputElement | null;
+    if (!toggle || !input || toggle.classList.contains('layer-toggle-locked')) return;
+    input.disabled = !enabled;
+    toggle.classList.toggle('service-unavailable', !enabled);
+    toggle.title = enabled ? '' : (reason || 'Service unavailable');
+    toggle.setAttribute('aria-disabled', String(!enabled));
   }
   public setLayerLoading(layer: keyof MapLayers, loading: boolean): void {
     this.layerTogglesEl?.querySelector(`.layer-toggle[data-layer="${layer}"]`)?.classList.toggle('loading', loading);

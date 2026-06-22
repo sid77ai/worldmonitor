@@ -76,6 +76,7 @@ Browser -> Railway Relay -> External APIs
 | Endpoint | Purpose | Authentication |
 |----------|---------|----------------|
 | `/` (WebSocket) | AIS vessel stream | AISStream API key |
+| `/ais/snapshot` | Merged AIS snapshot | Relay shared secret |
 | `/opensky` | Military aircraft | OAuth2 Bearer token |
 | `/rss` | Blocked RSS feeds | None (user-agent spoofing) |
 | `/health` | Status check | None |
@@ -83,8 +84,14 @@ Browser -> Railway Relay -> External APIs
 **Environment Variables** (Railway):
 
 - `AISSTREAM_API_KEY` - AIS data access
+- `BARENTSWATCH_CLIENT_ID` / `BARENTSWATCH_CLIENT_SECRET` - free Norwegian terrestrial, offshore, and satellite AIS enrichment
 - `OPENSKY_CLIENT_ID` - OAuth2 client ID
 - `OPENSKY_CLIENT_SECRET` - OAuth2 client secret
+
+The web API accepts `GFW_API_TOKEN` and proxies Global Fishing Watch vector
+tiles without exposing the token to browsers. The Ships layer overlays delayed
+global AIS presence (about 96 hours) and unmatched Sentinel-1 SAR vessel
+detections (about five days) when this token is configured.
 
 **Why Railway?**
 
@@ -93,6 +100,7 @@ Browser -> Railway Relay -> External APIs
 - Global edge deployment for low latency
 - Free tier sufficient for moderate traffic
 
-The relay is stateless; it simply authenticates and proxies requests. All caching and processing happens client-side or in Vercel Edge Functions.
+The relay keeps a bounded in-memory vessel snapshot, merging AISStream with
+BarentsWatch while preferring recent AISStream observations for duplicate MMSIs.
 
 See also [Finance Data - Chokepoints](/finance-data) for disruption scoring methodology.

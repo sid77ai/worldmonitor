@@ -21,6 +21,7 @@ import {
   initDB,
   cleanOldSnapshots,
   isAisConfigured,
+  probeAisBackendHealth,
   initAisStream,
   isOutagesConfigured,
   disconnectAisStream,
@@ -162,6 +163,7 @@ export class App {
   private visiblePanelPrimed = new Set<string>();
   private visiblePanelPrimeRaf: number | null = null;
   private followedCountriesCapDropToastTimer: number | null = null;
+  private aisHealthProbeTimer: number | null = null;
   private bootstrapHydrationState: BootstrapHydrationState = getBootstrapHydrationState();
   private cachedModeBannerEl: HTMLElement | null = null;
   private readonly handleViewportPrime = (): void => {
@@ -1080,8 +1082,30 @@ export class App {
     // Check AIS configuration before init
     if (!isAisConfigured()) {
       this.state.mapLayers.ais = false;
-    } else if (this.state.mapLayers.ais) {
-      initAisStream();
+    } else {
+      this.state.map?.setLayerToggleEnabled(
+        'ais',
+        false,
+        'AIS is unavailable while the data backend is starting or unhealthy',
+      );
+      const confirmAisHealth = async (): Promise<void> => {
+        const healthy = await probeAisBackendHealth();
+        if (this.state.isDestroyed) return;
+        this.state.map?.setLayerToggleEnabled(
+          'ais',
+          healthy,
+          'AIS is unavailable while the data backend is starting or unhealthy',
+        );
+        if (healthy) {
+          if (this.state.mapLayers.ais) initAisStream();
+          return;
+        }
+        this.aisHealthProbeTimer = window.setTimeout(() => {
+          this.aisHealthProbeTimer = null;
+          void confirmAisHealth();
+        }, 30_000);
+      };
+      void confirmAisHealth();
     }
 
     // Wait for sidecar readiness on desktop so bootstrap hits a live server
@@ -1368,7 +1392,8 @@ export class App {
 
     startLearning();
 
-    // Hide unconfigured layers after first data load
+    // Hide permanently unconfigured layers after first data load. Configured
+    // AIS remains visible but disabled until its backend reports healthy.
     if (!isAisConfigured()) {
       this.state.map?.hideLayerToggle('ais');
     }
@@ -1532,6 +1557,10 @@ export class App {
     if (this.followedCountriesCapDropToastTimer !== null) {
       window.clearTimeout(this.followedCountriesCapDropToastTimer);
       this.followedCountriesCapDropToastTimer = null;
+    }
+    if (this.aisHealthProbeTimer !== null) {
+      window.clearTimeout(this.aisHealthProbeTimer);
+      this.aisHealthProbeTimer = null;
     }
     this.state.map?.destroy();
     disconnectAisStream();

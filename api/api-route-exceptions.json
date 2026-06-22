@@ -278,6 +278,13 @@
       "removal_issue": null
     },
     {
+      "path": "api/gfw-tile.js",
+      "category": "upstream-proxy",
+      "reason": "Authenticated binary MVT proxy for Global Fishing Watch AIS-presence and SAR-detection tiles.",
+      "owner": "@SebastienMelki",
+      "removal_issue": null
+    },
+    {
       "path": "api/oref-alerts.js",
       "category": "upstream-proxy",
       "reason": "Transparent proxy to Pikud HaOref (IDF Home Front Command) alert feed. Shape is upstream's.",

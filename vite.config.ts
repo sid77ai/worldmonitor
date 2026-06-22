@@ -776,6 +776,35 @@ function gpsjamDevPlugin(): Plugin {
   };
 }
 
+function gfwTileDevPlugin(): Plugin {
+  return {
+    name: 'gfw-tile-dev',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/gfw-tile')) return next();
+        try {
+          const { default: handler } = await import('./api/gfw-tile.js');
+          const headers = new Headers();
+          for (const [key, value] of Object.entries(req.headers)) {
+            if (Array.isArray(value)) value.forEach((item) => headers.append(key, item));
+            else if (value !== undefined) headers.set(key, value);
+          }
+          const response = await handler(new Request(
+            `http://${req.headers.host || '127.0.0.1'}${req.url}`,
+            { method: req.method, headers },
+          ));
+          res.statusCode = response.status;
+          response.headers.forEach((value, key) => res.setHeader(key, value));
+          res.end(Buffer.from(await response.arrayBuffer()));
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(error instanceof Error ? error.message : 'GFW tile proxy failed');
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   // Inject environment variables from .env files into process.env.
@@ -823,6 +852,7 @@ export default defineConfig(({ mode }) => {
       rssProxyPlugin(),
       youtubeLivePlugin(),
       gpsjamDevPlugin(),
+      gfwTileDevPlugin(),
       useLocalApiHandlers ? sebufApiPlugin() : null,
       brotliPrecompressPlugin(),
       VitePWA({

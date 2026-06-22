@@ -40,6 +40,13 @@ describe('MapContainer globe routing', () => {
       'setFlightDelays should delegate to globeMap when useGlobe=true'
     );
   });
+
+  it('persists layer availability across renderer switches', () => {
+    assert.match(src, /layerToggleAvailability = new Map/,
+      'MapContainer should retain service availability independently of the active renderer');
+    assert.match(src, /for \(const \[layer, availability\] of this\.layerToggleAvailability\)/,
+      'MapContainer should replay service availability when a renderer is recreated');
+  });
 });
 
 // ========================================================================

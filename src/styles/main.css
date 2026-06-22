@@ -4847,6 +4847,19 @@ body.playback-mode .status-dot {
   border-color: var(--green);
 }
 
+.layer-toggle.service-unavailable {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.deckgl-layer-toggles .layer-toggle.service-unavailable:hover {
+  background: var(--bg);
+}
+
+.deckgl-layer-toggles .layer-toggle.service-unavailable input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
 .layer-toggles:not(.deckgl-layer-toggles) .layer-toggle.auto-hidden {
   color: var(--text-dim);
   border-color: var(--overlay-heavy);

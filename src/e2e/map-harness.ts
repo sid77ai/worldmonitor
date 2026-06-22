@@ -717,7 +717,13 @@ const VISUAL_SCENARIOS: VisualScenario[] = [
     variant: 'both',
     enabledLayers: ['ais'],
     camera: seededCameras.ais,
-    expectedDeckLayers: ['ais-density-layer', 'ais-disruptions-layer', 'ports-layer'],
+    expectedDeckLayers: [
+      'ais-density-layer',
+      'ais-disruptions-layer',
+      'gfw-ais-presence-layer',
+      'gfw-sar-dark-vessels-layer',
+      'ports-layer',
+    ],
     expectedSelectors: [],
   },
   {

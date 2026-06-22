@@ -480,6 +480,10 @@ export class MapComponent {
       }
       const activeCount = allBtns.filter(b => b.classList.contains('active')).length;
       allBtns.forEach(b => {
+        if (b.dataset.serviceDisabled === 'true') {
+          b.disabled = true;
+          return;
+        }
         if (!b.classList.contains('active')) {
           b.disabled = activeCount >= MAX_SVG_LAYERS;
           b.classList.toggle('limit-reached', activeCount >= MAX_SVG_LAYERS);
@@ -3552,6 +3556,16 @@ export class MapComponent {
     if (btn) {
       (btn as HTMLElement).style.display = 'none';
     }
+  }
+
+  public setLayerToggleEnabled(layer: keyof MapLayers, enabled: boolean, reason?: string): void {
+    const btn = this.container.querySelector(`.layer-toggle[data-layer="${layer}"]`) as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.dataset.serviceDisabled = String(!enabled);
+    btn.disabled = !enabled;
+    btn.classList.toggle('service-unavailable', !enabled);
+    btn.title = enabled ? '' : (reason || 'Service unavailable');
+    btn.setAttribute('aria-disabled', String(!enabled));
   }
 
   public setChokepointData(data: GetChokepointStatusResponse | null): void {
