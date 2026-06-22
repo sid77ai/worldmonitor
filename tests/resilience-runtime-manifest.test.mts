@@ -252,6 +252,7 @@ describe('resilience runtime manifest gateway auth', () => {
       [...PUBLIC_NO_AUTH_RPC_PATHS],
       [
         '/api/conflict/v1/list-acled-events',
+        '/api/maritime/v1/get-vessel-snapshot',
         '/api/natural/v1/list-natural-events',
         '/api/resilience/v1/get-runtime-manifest',
         '/api/seismology/v1/list-earthquakes',
