@@ -1,5 +1,9 @@
+import { trackGateHit } from '@/services/analytics';
+import { getCurrentClerkUser } from '@/services/clerk';
+import { onEntitlementChange, getEntitlementState } from '@/services/entitlements';
+import { t } from '@/services/i18n';
 import { hasPremiumAccess } from '@/services/panel-gating';
-import { onEntitlementChange } from '@/services/entitlements';
+import { setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
 
 
 let bannerEl: HTMLElement | null = null;
@@ -19,6 +23,11 @@ let bannerContainer: HTMLElement | null = null;
 const DISMISS_KEY = 'wm-pro-banner-launched-dismissed';
 const LEGACY_DISMISS_KEY = 'wm-pro-banner-dismissed';
 const DISMISS_MS = 7 * 24 * 60 * 60 * 1000;
+const RESERVATION_CLASS = 'wm-pro-banner-reserved';
+
+function setReservation(active: boolean): void {
+  document.documentElement.classList.toggle(RESERVATION_CLASS, active);
+}
 
 function isDismissed(): boolean {
   localStorage.removeItem(LEGACY_DISMISS_KEY);
@@ -31,6 +40,17 @@ function isDismissed(): boolean {
   return true;
 }
 
+function dismiss(): void {
+  if (!bannerEl) return;
+  bannerEl.classList.add('pro-banner-out');
+  setTimeout(() => {
+    bannerEl?.remove();
+    bannerEl = null;
+    setReservation(false);
+  }, 300);
+  localStorage.setItem(DISMISS_KEY, String(Date.now()));
+}
+
 export function showProBanner(container: HTMLElement): void {
   if (import.meta.env.VITE_DISABLE_PRO_UPSELLS !== 'false') return;
   // Cache container even on early-return paths so the entitlement-change
@@ -39,22 +59,85 @@ export function showProBanner(container: HTMLElement): void {
   // free" and "initially premium then downgrade" trajectories.
   bannerContainer = container;
 
+  if (bannerEl && !bannerEl.isConnected) {
+    bannerEl = null;
+  }
   if (bannerEl) return;
-  if (window.self !== window.top) return;
-  if (isDismissed()) return;
+  if (window.self !== window.top) {
+    setReservation(false);
+    return;
+  }
+  if (isDismissed()) {
+    setReservation(false);
+    return;
+  }
   // Don't pitch Pro to users who already have it. hasPremiumAccess() is the
   // authoritative signal — unions API key, tester key, Clerk pro role, AND
   // Convex Dodo entitlement (panel-gating.ts:11-27). A paying user shouldn't
   // see "Upgrade to Pro" at the top of every dashboard refresh.
-  if (hasPremiumAccess()) return;
+  if (hasPremiumAccess()) {
+    setReservation(false);
+    return;
+  }
+  // Defer the initial mount when entitlement state hasn't loaded yet for a
+  // signed-in user. App.ts:923 calls showProBanner() synchronously during
+  // init Phase 1, but App.ts:868's `void initEntitlementSubscription()` is
+  // non-awaited — the Convex snapshot can take up to ~10s on a cold start.
+  // hasPremiumAccess() reads isEntitled() against currentState===null in
+  // that window and returns false, which would mount an "Upgrade to Pro"
+  // banner for a paying Convex-only user that the onEntitlementChange
+  // listener then has to dismiss seconds later. The flash is jarring and
+  // misleading; better to render nothing until we know the user's tier.
+  //
+  // The skip is gated on "signed in", because anonymous users will never
+  // have a Convex entitlement and would otherwise wait forever. The
+  // listener handles re-mounting once the first snapshot confirms the
+  // user is actually free.
+  if (getCurrentClerkUser() && getEntitlementState() === null) return;
+
+  trackGateHit('pro-banner');
+  setReservation(true);
+
+  const banner = document.createElement('div');
+  banner.className = 'pro-banner';
+  setTrustedHtml(banner, trustedHtml(`
+    <span class="pro-banner-badge">${t('components.proBanner.badge')}</span>
+    <span class="pro-banner-text">
+      <strong>${t('components.proBanner.headline')}</strong> — ${t('components.proBanner.tagline')}
+    </span>
+    <a class="pro-banner-cta" href="/pro#pricing">${t('components.proBanner.cta')}</a>
+    <button class="pro-banner-close" aria-label="${t('components.proBanner.dismiss')}">×</button>
+  `, "legacy direct innerHTML migration"));
+
+  banner.querySelector('.pro-banner-close')!.addEventListener('click', (e) => {
+    e.preventDefault();
+    dismiss();
+  });
+
+  const slot = container.querySelector<HTMLElement>('#proBannerSlot');
+  const header = container.querySelector('.header');
+  if (slot) {
+    slot.replaceChildren(banner);
+  } else if (header) {
+    header.before(banner);
+  } else {
+    container.prepend(banner);
+  }
+
+  bannerEl = banner;
+  requestAnimationFrame(() => banner.classList.add('pro-banner-in'));
 }
 
 export function hideProBanner(): void {
-  if (!bannerEl) return;
+  if (!bannerEl) {
+    setReservation(false);
+    return;
+  }
   bannerEl.classList.add('pro-banner-out');
   setTimeout(() => {
     bannerEl?.remove();
     bannerEl = null;
+    setReservation(false);
   }, 300);
 }
 
@@ -80,15 +163,20 @@ export function isProBannerVisible(): boolean {
 //       so we can never surface a banner the user has already ✕'d this week.
 onEntitlementChange(() => {
   const premium = hasPremiumAccess();
-  if (premium && bannerEl) {
+  if (premium) {
+    if (!bannerEl) {
+      setReservation(false);
+      return;
+    }
     bannerEl.classList.add('pro-banner-out');
     setTimeout(() => {
       bannerEl?.remove();
       bannerEl = null;
+      setReservation(false);
     }, 300);
     return;
   }
-  if (!premium && !bannerEl && bannerContainer) {
+  if (!bannerEl && bannerContainer) {
     showProBanner(bannerContainer);
   }
 });

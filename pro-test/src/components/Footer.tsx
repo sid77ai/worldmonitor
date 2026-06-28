@@ -16,7 +16,7 @@ export const Footer = () => (
         <a href="https://www.worldmonitor.app/docs" className="hover:text-wm-text transition-colors">Docs</a>
         <a href="https://status.worldmonitor.app/" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">Status</a>
       </div>
-      <span className="text-[10px] opacity-40 mt-4 md:mt-0">&copy; {new Date().getFullYear()} WorldMonitor</span>
+      <span className="text-[10px] opacity-40 mt-4 md:mt-0" suppressHydrationWarning>&copy; {new Date().getFullYear()} WorldMonitor</span>
     </div>
   </footer>
 );
