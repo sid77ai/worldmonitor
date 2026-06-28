@@ -158,4 +158,16 @@ describe('maritime AIS visibility guard (SmartPollLoop)', () => {
     assert.match(disconnectFn, /pollLoop\?\.stop\(\)/,
       'disconnectAisStream should stop the SmartPollLoop');
   });
+
+  it('requires a live snapshot before cached data can confirm backend health', () => {
+    assert.match(src, /const response = backendHealthConfirmed\s*\? await snapshotBreaker\.execute\(request, emptySnapshotFallback\)\s*:\s*await request\(\)/,
+      'The first AIS health check must bypass persisted circuit-breaker data');
+    assert.match(src, /backendHealthConfirmed = snapshot\.status\.connected/,
+      'Only the live snapshot connection status should confirm backend health');
+  });
+
+  it('exposes a one-shot backend health probe for disabled AIS controls', () => {
+    assert.match(src, /export async function probeAisBackendHealth\(\): Promise<boolean>/,
+      'The app should be able to probe AIS without enabling the layer first');
+  });
 });

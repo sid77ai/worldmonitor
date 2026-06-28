@@ -11,6 +11,8 @@ import {
   ALL_PANELS,
   VARIANT_DEFAULTS,
   getEffectivePanelConfig,
+  enforceFreePanelLimit,
+  restoreFreeMapPanelAccess,
   FREE_MAX_PANELS,
   FREE_MAX_SOURCES,
 } from '@/config';
@@ -21,6 +23,7 @@ import {
   initDB,
   cleanOldSnapshots,
   isAisConfigured,
+  probeAisBackendHealth,
   initAisStream,
   isOutagesConfigured,
   disconnectAisStream,
@@ -33,10 +36,12 @@ import { isProUser } from '@/services/widget-store';
 import { mlWorker } from '@/services/ml-worker';
 import { getAiFlowSettings, subscribeAiFlowChange, isHeadlineMemoryEnabled } from '@/services/ai-flow-settings';
 import { startLearning } from '@/services/country-instability';
-import { loadFromStorage, parseMapUrlState, saveToStorage, isMobileDevice } from '@/utils';
+import { loadFromStorage, parseMapUrlState, saveToStorage, isMobileDevice, showToast } from '@/utils';
 import { clearPanelSpans, invalidatePanelStorageCacheForKeys } from '@/utils/panel-storage';
 import type { ParsedMapUrlState } from '@/utils';
-import { SignalModal, IntelligenceGapBadge, BreakingNewsBanner } from '@/components';
+import { SignalModal } from '@/components/SignalModal';
+import { IntelligenceGapBadge } from '@/components/IntelligenceGapBadge';
+import { BreakingNewsBanner } from '@/components/BreakingNewsBanner';
 import { initBreakingNewsAlerts, destroyBreakingNewsAlerts } from '@/services/breaking-news-alerts';
 import type { ServiceStatusPanel } from '@/components/ServiceStatusPanel';
 import type { StablecoinPanel } from '@/components/StablecoinPanel';
@@ -76,7 +81,8 @@ import { hasPremiumAccess } from '@/services/panel-gating';
 import { BETA_MODE } from '@/config/beta';
 import { trackEvent, trackDeeplinkOpened, initAuthAnalytics } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
-import { initI18n, t } from '@/services/i18n';
+import { initI18n, t, I18N_RESOURCES_LOADED_EVENT, type I18nResourcesLoadedDetail } from '@/services/i18n';
+import { initDeferredDashboardFonts } from '@/bootstrap/secondary-startup';
 
 import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount, FEEDS, INTEL_SOURCES } from '@/config/feeds';
 import { selectSourcesUnderCap, findFullyDisabledCategories } from '@/services/source-cap';
@@ -87,11 +93,12 @@ import { DesktopUpdater } from '@/app/desktop-updater';
 import { CountryIntelManager } from '@/app/country-intel';
 import { registerWebMcpTools } from '@/services/webmcp';
 import { refreshDataFreshnessFromHealth } from '@/services/health-freshness';
-import { SearchManager } from '@/app/search-manager';
+import type { SearchManager } from '@/app/search-manager';
 import { RefreshScheduler } from '@/app/refresh-scheduler';
 import { PanelLayoutManager } from '@/app/panel-layout';
 import { DataLoaderManager } from '@/app/data-loader';
 import { EventHandlerManager } from '@/app/event-handlers';
+import { replaceRawI18nKeyPlaceholders } from '@/app/i18n-raw-key-healer';
 import { resolveUserRegion, resolvePreciseUserCoordinates, type PreciseCoordinates } from '@/utils/user-location';
 import { showProBanner } from '@/components/ProBanner';
 import { initAuthState, subscribeAuthState } from '@/services/auth-state';
@@ -126,6 +133,7 @@ import {
 import type { CorrelationPanel } from '@/components/CorrelationPanel';
 
 const CYBER_LAYER_ENABLED = import.meta.env.VITE_ENABLE_CYBER_LAYER === 'true';
+const FREE_MAP_PANEL_ACCESS_KEY = 'worldmonitor-free-map-panel-access-v1';
 
 export type { CountryBriefSignals } from '@/app/app-context';
 
@@ -138,7 +146,15 @@ export class App {
   private panelLayout: PanelLayoutManager;
   private dataLoader: DataLoaderManager;
   private eventHandlers: EventHandlerManager;
-  private searchManager: SearchManager;
+  private searchManager: SearchManager | null = null;
+  private searchManagerLoad: Promise<SearchManager> | null = null;
+  // Monotonic epoch: every openSearch() call supersedes earlier in-flight ones.
+  // searchToggleDesiredOpen accumulates the net intent of rapid Cmd+K presses
+  // while the lazy chunk loads (XOR: odd → open, even → cancel). (#4403 review)
+  private openSearchEpoch = 0;
+  private searchToggleDesiredOpen = false;
+  private latestSearchAdsb: Parameters<SearchManager['updateFlightSource']>[0] = [];
+  private latestSearchMilitary: Parameters<SearchManager['updateFlightSource']>[1] = [];
   private countryIntel: CountryIntelManager;
   private refreshScheduler: RefreshScheduler;
   private desktopUpdater: DesktopUpdater;
@@ -147,9 +163,9 @@ export class App {
   private unsubAiFlow: (() => void) | null = null;
   private unsubFreeTier: (() => void) | null = null;
   private unsubEntitlementPremiumLoaders: (() => void) | null = null;
-  // Resolves once Phase-4 UI modules (searchManager, countryIntel) have
-  // initialised so WebMCP bindings can await readiness before touching
-  // the nullable UI targets. Avoids the startup race where an agent
+  // Resolves once Phase-4 UI modules have initialised so WebMCP bindings can
+  // await readiness before touching nullable UI targets. Avoids the startup
+  // race where an agent
   // discovers a tool via early registerTool and invokes it before the
   // target panel exists.
   private uiReady!: Promise<void>;
@@ -162,6 +178,7 @@ export class App {
   private visiblePanelPrimed = new Set<string>();
   private visiblePanelPrimeRaf: number | null = null;
   private followedCountriesCapDropToastTimer: number | null = null;
+  private aisHealthProbeTimer: number | null = null;
   private bootstrapHydrationState: BootstrapHydrationState = getBootstrapHydrationState();
   private cachedModeBannerEl: HTMLElement | null = null;
   private readonly handleViewportPrime = (): void => {
@@ -180,6 +197,13 @@ export class App {
   };
   private readonly handleConnectivityChange = (): void => {
     this.updateConnectivityUi();
+  };
+  private readonly handleI18nResourcesLoaded = (ev: Event): void => {
+    const language = (ev as CustomEvent<I18nResourcesLoadedDetail>).detail?.language;
+    if (language !== 'en') return;
+    // Scope this to the app container: body-level modals are user-opened after
+    // startup, by which point the full English bundle should already be loaded.
+    replaceRawI18nKeyPlaceholders(this.state.container, t);
   };
   private readonly handleFollowedCountriesCapDrop = (ev: Event): void => {
     const detail = (ev as CustomEvent<{ kept?: unknown; dropped?: unknown }>).detail;
@@ -869,6 +893,7 @@ export class App {
       newsByCategory: {},
       latestMarkets: [],
       latestPredictions: [],
+      latestTechEvents: [],
       latestClusters: [],
       intelligenceCache: {},
       cyberThreatsCache: null,
@@ -922,11 +947,6 @@ export class App {
       refreshOpenCountryBrief: () => this.countryIntel.refreshOpenBrief(),
     });
 
-    this.searchManager = new SearchManager(this.state, {
-      openCountryBriefByCode: (code, country) => this.countryIntel.openCountryBriefByCode(code, country),
-      enablePanel: (panelId) => this.eventHandlers.enablePanelById(panelId),
-    });
-
     this.panelLayout = new PanelLayoutManager(this.state, {
       openCountryStory: (code, name) => this.countryIntel.openCountryStory(code, name),
       openCountryBrief: (code) => {
@@ -940,7 +960,8 @@ export class App {
     });
 
     this.eventHandlers = new EventHandlerManager(this.state, {
-      updateSearchIndex: () => this.searchManager.updateSearchIndex(),
+      openSearch: (options) => { void this.openSearch(options); },
+      updateSearchIndex: () => this.updateSearchIndexIfReady(),
       loadAllData: () => this.dataLoader.loadAllData(),
       flushStaleRefreshes: () => this.refreshScheduler.flushStaleRefreshes(),
       setHiddenSince: (ts) => this.refreshScheduler.setHiddenSince(ts),
@@ -952,22 +973,107 @@ export class App {
       refreshCiiAfterFocalPointsReady: () => this.dataLoader.refreshCiiAfterFocalPointsReady(),
       stopLayerActivity: (layer) => this.dataLoader.stopLayerActivity(layer),
       mountLiveNewsIfReady: () => this.panelLayout.mountLiveNewsIfReady(),
-      updateFlightSource: (adsb, military) => this.searchManager.updateFlightSource(adsb, military),
+      updateFlightSource: (adsb, military) => this.updateFlightSourceIfReady(adsb, military),
     });
 
     // Wire cross-module callback: DataLoader → SearchManager
-    this.dataLoader.updateSearchIndex = () => this.searchManager.updateSearchIndex();
+    this.dataLoader.updateSearchIndex = () => this.updateSearchIndexIfReady();
 
     // Track destroy order (reverse of init)
     this.modules = [
       this.desktopUpdater,
       this.panelLayout,
       this.countryIntel,
-      this.searchManager,
       this.dataLoader,
       this.refreshScheduler,
       this.eventHandlers,
     ];
+  }
+
+  private ensureSearchManager(): Promise<SearchManager> {
+    if (this.searchManager) return Promise.resolve(this.searchManager);
+    if (this.searchManagerLoad) return this.searchManagerLoad;
+
+    this.searchManagerLoad = import('@/app/search-manager')
+      .then(({ SearchManager }) => {
+        if (this.state.isDestroyed) {
+          throw new Error('App destroyed before search manager loaded');
+        }
+
+        const manager = new SearchManager(this.state, {
+          openCountryBriefByCode: (code, country) => this.countryIntel.openCountryBriefByCode(code, country),
+          enablePanel: (panelId) => this.eventHandlers.enablePanelById(panelId),
+        });
+        manager.init();
+        manager.updateFlightSource(this.latestSearchAdsb, this.latestSearchMilitary);
+        this.searchManager = manager;
+        this.modules.push(manager);
+        return manager;
+      })
+      .finally(() => {
+        this.searchManagerLoad = null;
+      });
+
+    return this.searchManagerLoad;
+  }
+
+  private updateSearchIndexIfReady(): void {
+    this.searchManager?.updateSearchIndex();
+  }
+
+  private updateFlightSourceIfReady(
+    adsb: Parameters<SearchManager['updateFlightSource']>[0],
+    military: Parameters<SearchManager['updateFlightSource']>[1],
+  ): void {
+    this.latestSearchAdsb = adsb;
+    this.latestSearchMilitary = military;
+    this.searchManager?.updateFlightSource(adsb, military);
+  }
+
+  private async openSearch(options: { toggle?: boolean; throwOnFailure?: boolean } = {}): Promise<void> {
+    // Concurrency model: each press registers its intent, then claims a
+    // monotonic epoch. After the lazy load resolves, only the latest epoch acts
+    // — superseded presses bail. This yields one deterministic modal.open() for
+    // any Cmd+K / button interleaving during the first load (replacing the prior
+    // two-field pending-toggle bookkeeping), while preserving net-toggle parity:
+    // the XOR flip happens BEFORE the epoch claim so every rapid Cmd+K still
+    // counts (odd → open, even → cancel), even the ones that get superseded.
+    let epoch = this.openSearchEpoch;
+    try {
+      await this.waitForUiReady();
+
+      const existingModal = this.state.searchModal;
+      if (options.toggle && existingModal?.isOpen()) {
+        existingModal.close();
+        return;
+      }
+
+      const togglingBeforeLoad = Boolean(options.toggle) && !this.searchManager;
+      if (togglingBeforeLoad) {
+        this.searchToggleDesiredOpen = !this.searchToggleDesiredOpen;
+      }
+
+      epoch = ++this.openSearchEpoch;
+      const manager = await this.ensureSearchManager();
+      if (this.openSearchEpoch !== epoch) return;
+
+      const wantOpen = togglingBeforeLoad ? this.searchToggleDesiredOpen : true;
+      if (!wantOpen) return;
+
+      manager.updateSearchIndex();
+      const modal = this.state.searchModal;
+      if (!modal) throw new Error('Search modal is not initialised');
+      modal.open();
+    } catch (error) {
+      if (!this.state.isDestroyed) {
+        console.warn('[search] Failed to load search manager:', error);
+        if (!options.throwOnFailure) showToast('Search failed to load. Please try again.');
+      }
+      if (options.throwOnFailure) throw error;
+    } finally {
+      // Reset the toggle accumulator once the latest press settles.
+      if (this.openSearchEpoch === epoch) this.searchToggleDesiredOpen = false;
+    }
   }
 
   public async init(): Promise<void> {
@@ -991,18 +1097,21 @@ export class App {
       },
       resolveCountryName: (code) => CountryIntelManager.resolveCountryName(code),
       openSearch: async () => {
-        await this.waitForUiReady();
-        if (!this.state.searchModal) {
-          throw new Error('Search modal is not initialised');
-        }
-        this.state.searchModal.open();
+        // openSearch() awaits UI readiness internally and throws on failure when
+        // throwOnFailure is set, so the agent receives a real success/failure.
+        // (Re-checking searchModal here would spuriously throw if a concurrent
+        // Cmd+K closed it between open and the check — #4403 review ADV-4.)
+        await this.openSearch({ throwOnFailure: true });
       },
     });
+
+    window.addEventListener(I18N_RESOURCES_LOADED_EVENT, this.handleI18nResourcesLoaded);
 
     await initDB();
     startFlightHistoryCleanup();
     startVesselHistoryCleanup();
     await initI18n();
+    initDeferredDashboardFonts();
     // Localize the static index.html shell — <title>, meta description, and
     // sr-only <h1> are baked in English so search crawlers see something
     // before JS runs; once i18n is ready we swap them to the user's locale.
@@ -1080,8 +1189,30 @@ export class App {
     // Check AIS configuration before init
     if (!isAisConfigured()) {
       this.state.mapLayers.ais = false;
-    } else if (this.state.mapLayers.ais) {
-      initAisStream();
+    } else {
+      this.state.map?.setLayerToggleEnabled(
+        'ais',
+        false,
+        'AIS is unavailable while the data backend is starting or unhealthy',
+      );
+      const confirmAisHealth = async (): Promise<void> => {
+        const healthy = await probeAisBackendHealth();
+        if (this.state.isDestroyed) return;
+        this.state.map?.setLayerToggleEnabled(
+          'ais',
+          healthy,
+          'AIS is unavailable while the data backend is starting or unhealthy',
+        );
+        if (healthy) {
+          if (this.state.mapLayers.ais) initAisStream();
+          return;
+        }
+        this.aisHealthProbeTimer = window.setTimeout(() => {
+          this.aisHealthProbeTimer = null;
+          void confirmAisHealth();
+        }, 30_000);
+      };
+      void confirmAisHealth();
     }
 
     // Wait for sidecar readiness on desktop so bootstrap hits a live server
@@ -1224,6 +1355,7 @@ export class App {
     // init() is async so the dynamic MapContainer import can resolve before
     // downstream code (e.g. mobileGeoCoords→state.map.setCenter) reads ctx.map.
     await this.panelLayout.init();
+    this.eventHandlers.setupSearchControls();
     showProBanner(this.state.container);
     this.updateConnectivityUi();
     window.addEventListener('online', this.handleConnectivityChange);
@@ -1268,6 +1400,7 @@ export class App {
     this.eventHandlers.setupPizzIntIndicator();
     this.eventHandlers.setupLlmStatusIndicator();
     this.eventHandlers.setupExportPanel();
+    this.eventHandlers.setupSearchControls();
 
     // Correlation engine
     const correlationEngine = new CorrelationEngine();
@@ -1280,7 +1413,7 @@ export class App {
     this.eventHandlers.setupAuthWidget();
     // Capture any ?ref= / ?wm_referral= from the URL into localStorage
     // and strip from the visible URL. Runs BEFORE the pending-checkout
-    // capture so a /pro?ref=X&checkoutProduct=Y landing preserves both
+    // capture so a /dashboard?ref=X&checkoutProduct=Y landing preserves both
     // signals. Pure read of current URL — no-op when neither param is
     // present.
     captureReferralFromUrl();
@@ -1303,10 +1436,10 @@ export class App {
       });
     }
 
-    // Phase 4: SearchManager, MapLayerHandlers, CountryIntel
-    this.searchManager.init();
+    // Phase 4: MapLayerHandlers, CountryIntel. SearchManager is lazy-loaded
+    // on first CMD+K/search-button open so its modal catalog stays off startup.
     this.eventHandlers.setupMapLayerHandlers();
-    this.countryIntel.init();
+    await this.countryIntel.init();
     // Unblock any WebMCP tool invocations that arrived during startup.
     this.resolveUiReady();
 
@@ -1368,7 +1501,8 @@ export class App {
 
     startLearning();
 
-    // Hide unconfigured layers after first data load
+    // Hide permanently unconfigured layers after first data load. Configured
+    // AIS remains visible but disabled until its backend reports healthy.
     if (!isAisConfigured()) {
       this.state.map?.hideLayerToggle('ais');
     }
@@ -1434,26 +1568,32 @@ export class App {
     if (isProUser()) return;
 
     // --- Panel limit ---
-    const panelSettings = loadFromStorage<Record<string, PanelConfig>>(STORAGE_KEYS.panels, {});
-    let cwDisabled = false;
+    // Delegate to the shared enforceFreePanelLimit helper so this boot path and
+    // the dashboard-tab add/switch/load paths stay in lockstep (same cw-* and
+    // count rules). isPro is false here — the isProUser() early-return above
+    // already short-circuited pro users.
+    let panelSettings = loadFromStorage<Record<string, PanelConfig>>(STORAGE_KEYS.panels, {});
+    let panelsChanged = false;
+    if (!localStorage.getItem(FREE_MAP_PANEL_ACCESS_KEY)) {
+      const restoredPanels = restoreFreeMapPanelAccess(panelSettings);
+      if (panelSettings.map?.enabled !== restoredPanels.map?.enabled) {
+        panelSettings = restoredPanels;
+        panelsChanged = true;
+      }
+      localStorage.setItem(FREE_MAP_PANEL_ACCESS_KEY, 'done');
+    }
+    const clampedPanels = enforceFreePanelLimit(panelSettings, false);
     for (const key of Object.keys(panelSettings)) {
-      if (key.startsWith('cw-') && panelSettings[key]?.enabled) {
-        panelSettings[key] = { ...panelSettings[key]!, enabled: false };
-        cwDisabled = true;
+      if (panelSettings[key]?.enabled !== clampedPanels[key]?.enabled) {
+        panelsChanged = true;
+        break;
       }
     }
-    const enabledKeys = Object.entries(panelSettings)
-      .filter(([k, v]) => v.enabled && !k.startsWith('cw-'))
-      .sort(([ka, a], [kb, b]) => (a.priority ?? 99) - (b.priority ?? 99) || ka.localeCompare(kb))
-      .map(([k]) => k);
-    const needsTrim = enabledKeys.length > FREE_MAX_PANELS;
-    if (needsTrim) {
-      for (const key of enabledKeys.slice(FREE_MAX_PANELS)) {
-        panelSettings[key] = { ...panelSettings[key]!, enabled: false };
-      }
-      console.log(`[App] Free tier: trimmed ${enabledKeys.length - FREE_MAX_PANELS} panel(s) to enforce ${FREE_MAX_PANELS}-panel limit`);
+    if (panelsChanged) {
+      saveToStorage(STORAGE_KEYS.panels, clampedPanels);
+      this.state.panelSettings = clampedPanels;
+      console.log(`[App] Free tier: enforced ${FREE_MAX_PANELS}-panel limit (disabled over-cap / cw-* panels)`);
     }
-    if (cwDisabled || needsTrim) saveToStorage(STORAGE_KEYS.panels, panelSettings);
 
     // --- Source limit ---
     // Free-tier 80-source cap. Pre-2026-05-01 this used `Array.sort().slice()`
@@ -1509,6 +1649,7 @@ export class App {
     window.removeEventListener('resize', this.handleViewportPrime);
     window.removeEventListener('online', this.handleConnectivityChange);
     window.removeEventListener('offline', this.handleConnectivityChange);
+    window.removeEventListener(I18N_RESOURCES_LOADED_EVENT, this.handleI18nResourcesLoaded);
     window.removeEventListener(WM_FOLLOWED_COUNTRIES_CAP_DROP, this.handleFollowedCountriesCapDrop);
     window.removeEventListener(CLOUD_PREFS_APPLIED_EVENT, this.handleCloudPrefsApplied);
     if (this.visiblePanelPrimeRaf !== null) {
@@ -1532,6 +1673,10 @@ export class App {
     if (this.followedCountriesCapDropToastTimer !== null) {
       window.clearTimeout(this.followedCountriesCapDropToastTimer);
       this.followedCountriesCapDropToastTimer = null;
+    }
+    if (this.aisHealthProbeTimer !== null) {
+      window.clearTimeout(this.aisHealthProbeTimer);
+      this.aisHealthProbeTimer = null;
     }
     this.state.map?.destroy();
     disconnectAisStream();
@@ -1613,8 +1758,8 @@ export class App {
     window.requestAnimationFrame(() => toast.classList.add('visible'));
   }
 
-  // Waits for Phase-4 UI modules (searchManager + countryIntel) to finish
-  // initialising. WebMCP bindings call this before touching nullable UI
+  // Waits for Phase-4 UI modules to finish initialising. WebMCP bindings call
+  // this before touching nullable UI
   // state so a tool invoked during startup waits rather than throwing;
   // the timeout guards against a genuinely broken init path hanging the
   // agent forever.

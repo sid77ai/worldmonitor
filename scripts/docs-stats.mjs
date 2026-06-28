@@ -24,6 +24,13 @@ const dirsIn = (p) =>
   readdirSync(join(ROOT, p), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
 const filesIn = (p) =>
   readdirSync(join(ROOT, p), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
+const entriesIn = (p) => readdirSync(join(ROOT, p), { withFileTypes: true }).map((e) => e.name);
+
+function makefileVar(text, name) {
+  const match = text.match(new RegExp(`^${name}\\s*:=\\s*(\\S+)`, 'm'));
+  if (!match) throw new Error(`docs-stats: could not find ${name} in Makefile`);
+  return match[1];
+}
 
 function walk(rel, out = []) {
   for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
@@ -35,6 +42,8 @@ function walk(rel, out = []) {
 }
 
 function computeStats() {
+  const makefile = read('Makefile');
+
   // ---- Map layers (src/config/map-layer-definitions.ts) ----
   const mld = read('src/config/map-layer-definitions.ts');
   const registryBlock = mld.slice(mld.indexOf('LAYER_REGISTRY'), mld.indexOf('VARIANT_LAYER_ORDER'));
@@ -45,6 +54,19 @@ function computeStats() {
   for (const m of variantBlock.matchAll(/(\w+):\s*\[([^\]]*)\]/g)) {
     variantLayers[m[1]] = (m[2].match(/'[^']+'/g) || []).length;
   }
+  const variantCount = Object.keys(variantLayers).length;
+
+  // ---- Root app directories used by AGENTS.md and CONTRIBUTING.md ----
+  const componentTopLevelTsFiles = filesIn('src/components').filter((f) => f.endsWith('.ts')).length;
+  const serviceTopLevelEntries = entriesIn('src/services').length;
+  const apiEndpointEntries = entriesIn('api').filter(
+    (f) => !f.startsWith('_') && !/\.test\./.test(f) && !/\.d\.ts$/.test(f) && !/\.json$/.test(f),
+  ).length;
+
+  // ---- Panel subclasses across src/components (ARCHITECTURE.md system diagram) ----
+  const panelClasses = walk('src/components')
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
+    .reduce((n, f) => n + (read(f).match(/class\s+\w+\s+extends\s+Panel\b/g) || []).length, 0);
 
   // ---- Protos & services (proto/**) ----
   const protoFiles = walk('proto').filter((f) => f.endsWith('.proto'));
@@ -59,8 +81,8 @@ function computeStats() {
   // ---- Server domain handlers (server/worldmonitor/*/) ----
   const serverDomains = dirsIn('server/worldmonitor').length;
 
-  // ---- Locales (src/locales/*.json) ----
-  const locales = filesIn('src/locales').filter((f) => f.endsWith('.json')).length;
+  // ---- User-facing locales (src/locales/*.json, excluding shell fragments) ----
+  const locales = filesIn('src/locales').filter((f) => f.endsWith('.json') && !f.endsWith('.shell.json')).length;
 
   // ---- CI workflows (.github/workflows/*.yml) ----
   const workflows = filesIn('.github/workflows').filter((f) => f.endsWith('.yml') || f.endsWith('.yaml')).sort();
@@ -124,6 +146,11 @@ function computeStats() {
     _generated: 'scripts/docs-stats.mjs — do not edit by hand; run `npm run docs:stats`',
     layerDefinitions,
     variantLayers,
+    variantCount,
+    componentTopLevelTsFiles,
+    serviceTopLevelEntries,
+    apiEndpointEntries,
+    panelClasses,
     protoFiles: protoFiles.length,
     protoServices,
     protoDomainFolders,
@@ -142,6 +169,7 @@ function computeStats() {
     telegramFullTierCounts,
     leaderNames,
     populationPriorityCountries,
+    sebufVersion: makefileVar(makefile, 'SEBUF_VERSION'),
   };
 }
 
@@ -160,6 +188,24 @@ function claims(s) {
     { file: 'README.md', re: /(\d+)\+\s+curated news feeds/, value: s.feedDefinitions, min: true },
     { file: 'README.md', re: /(\d+)\s+stock exchanges/, value: s.stockExchangeCount },
     { file: 'docs/overview.mdx', re: /(\d+)\+\s+curated news feeds/, value: s.feedDefinitions, min: true },
+
+    // ---- Root contributor/agent/security docs ----
+    { file: 'AGENTS.md', re: /with (\d+)\s+top-level TypeScript component files/, value: s.componentTopLevelTsFiles },
+    { file: 'AGENTS.md', re: /(\d+)\+\s+Vercel Edge API endpoint entries/, value: s.apiEndpointEntries, min: true },
+    { file: 'AGENTS.md', re: /(\d+)\s+freshness-tracked source groups/, value: s.freshnessSources },
+    { file: 'AGENTS.md', re: /components\/\s+# (\d+)\s+top-level TypeScript component files/, value: s.componentTopLevelTsFiles },
+    { file: 'AGENTS.md', re: /services\/\s+# Business logic \((\d+)\s+service modules and domain directories\)/, value: s.serviceTopLevelEntries },
+    { file: 'AGENTS.md', re: /requires buf \+ sebuf (v\d+\.\d+\.\d+) plugins/, value: s.sebufVersion },
+
+    { file: 'ARCHITECTURE.md', re: /base class \((\d+)\s+classes\b/, value: s.panelClasses },
+    { file: 'CONTRIBUTING.md', re: /Service and message definitions across (\d+)\s+domains/, value: s.protoDomainFolders },
+    { file: 'CONTRIBUTING.md', re: /produces (\d+)\s+app variants/, value: s.variantCount },
+    { file: 'CONTRIBUTING.md', re: /UI components — (\d+)\s+top-level TypeScript component files/, value: s.componentTopLevelTsFiles },
+    { file: 'CONTRIBUTING.md', re: /i18n JSON files \((\d+)\s+languages\)/, value: s.locales },
+    { file: 'CONTRIBUTING.md', re: /Sebuf handler implementations for all (\d+)\s+server handler domains/, value: s.serverDomains },
+    { file: 'CONTRIBUTING.md', re: /currently \*\*(v\d+\.\d+\.\d+)\*\*/, value: s.sebufVersion },
+    { file: 'CONTRIBUTING.md', re: /expand our (\d+)\+\s+feed collection/, value: s.feedDefinitions, min: true },
+    { file: 'SECURITY.md', re: /All (\d+)\s+domain APIs are served through Sebuf/, value: s.serverDomains },
 
     { file: 'docs/architecture.mdx', re: /(\d+)\s+service domains, and (?:\d+)\s+map layers/, value: s.protoServices },
     { file: 'docs/architecture.mdx', re: /(\d+)\s+map layers\./, value: s.layerDefinitions },
@@ -255,7 +301,11 @@ function main() {
       failures.push(`${c.file}: claim pattern ${c.re} not found (expected ${c.value})`);
       continue;
     }
-    const found = Number(m[1]);
+    if (c.min && typeof c.value !== 'number') {
+      failures.push(`${c.file}: min claims must use numeric expected values — pattern ${c.re}`);
+      continue;
+    }
+    const found = typeof c.value === 'number' ? Number(m[1]) : m[1];
     const ok = c.min ? found <= c.value : found === c.value;
     if (!ok) {
       failures.push(

@@ -86,6 +86,14 @@ async function loadMinimalPanel() {
         const wrapper = h('div', { className: MinimalConstructorOnlyPanel.MARKER_CLASS }, input);
         replaceChildren(this.content, wrapper);
       }
+
+      publicRunWhenConnected(callback) {
+        return this.runWhenConnected(callback);
+      }
+
+      publicNotifyConnected() {
+        this.notifyConnected();
+      }
     }
 
     export class FreshnessMappedPanel extends Panel {
@@ -120,6 +128,7 @@ async function loadMinimalPanel() {
         ANONYMOUS: 'anonymous',
         FREE_TIER: 'free_tier',
       });
+      export function hasPremiumAccess() { return true; }
     `],
     ['checkout-stub', `export function startCheckout() {}`],
     ['products-stub', `export const DEFAULT_UPGRADE_PRODUCT = 'pro';`],

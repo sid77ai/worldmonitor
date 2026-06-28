@@ -14,7 +14,7 @@ import {
   Landmark, Fuel
 } from 'lucide-react';
 import { t } from './i18n';
-import { initOverlay, ensureClerk, tryResumeCheckoutFromUrl } from './services/checkout';
+import { ensureClerk, tryResumeCheckoutFromUrl } from './services/checkout';
 import { PricingSection } from './components/PricingSection';
 import { SoonBadge } from './components/SoonBadge';
 import { Logo } from './components/Logo';
@@ -22,6 +22,11 @@ import { WiredBadge } from './components/WiredBadge';
 import { Footer } from './components/Footer';
 import dashboardFallback from './assets/worldmonitor-7-mar-2026.jpg';
 import wiredLogo from './assets/wired-logo.svg';
+import {
+  DASHBOARD_EMBED_PREVIEW_URL,
+  DASHBOARD_PATH,
+  DASHBOARD_URL,
+} from './routes';
 
 const API_BASE = 'https://api.worldmonitor.app/api';
 const TURNSTILE_SITE_KEY = '0x4AAAAAACnaYgHIyxclu8Tj';
@@ -285,7 +290,7 @@ const Navbar = () => {
             ))}
           {showGoToDashboard ? (
             <a
-              href="https://worldmonitor.app"
+              href={DASHBOARD_URL}
               className="bg-wm-green text-wm-bg px-4 py-2 rounded-sm font-mono text-xs uppercase tracking-wider font-bold hover:bg-green-400 transition-colors inline-flex items-center gap-1.5"
             >
               {t('nav.goToDashboard')} <ArrowRight className="w-3 h-3" aria-hidden="true" />
@@ -390,7 +395,7 @@ const Hero = () => {
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
             {showGoToDashboard ? (
-              <a href="https://worldmonitor.app" className="bg-wm-green text-wm-bg px-6 py-3 rounded-sm font-mono text-sm uppercase tracking-wider font-bold hover:bg-green-400 transition-colors flex items-center justify-center gap-2">
+              <a href={DASHBOARD_URL} className="bg-wm-green text-wm-bg px-6 py-3 rounded-sm font-mono text-sm uppercase tracking-wider font-bold hover:bg-green-400 transition-colors flex items-center justify-center gap-2">
                 {t('hero.goToDashboard')} <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </a>
             ) : (
@@ -406,7 +411,7 @@ const Hero = () => {
           </div>
 
           <div className="flex items-center justify-center mt-4">
-            <a href={appendRefToUrl("https://worldmonitor.app", getRefCode())} className="text-xs text-wm-green font-mono hover:text-green-300 transition-colors flex items-center gap-1">
+            <a href={appendRefToUrl(DASHBOARD_URL, getRefCode())} className="text-xs text-wm-green font-mono hover:text-green-300 transition-colors flex items-center gap-1">
               {t('hero.tryFreeDashboard')} <ArrowRight className="w-3 h-3" aria-hidden="true" />
             </a>
           </div>
@@ -577,7 +582,7 @@ const LivePreview = () => (
           </div>
           <span className="font-mono text-xs text-wm-muted ml-2">{t('livePreview.windowTitle')}</span>
           <a
-            href={appendRefToUrl("https://worldmonitor.app", getRefCode())}
+            href={appendRefToUrl(DASHBOARD_URL, getRefCode())}
             target="_blank"
             rel="noreferrer"
             className="ml-auto text-xs text-wm-green font-mono hover:text-green-300 transition-colors flex items-center gap-1"
@@ -598,7 +603,7 @@ const LivePreview = () => (
             // src/utils/embedded-preview.ts. Not a generic iframe gate —
             // enterprise white-label embeds without this marker keep
             // firing premium RPCs normally.
-            src="https://worldmonitor.app?embed=pro-preview"
+            src={DASHBOARD_EMBED_PREVIEW_URL}
             title={t('livePreview.iframeTitle')}
             className="relative w-full h-full border-0"
             loading="lazy"
@@ -607,7 +612,7 @@ const LivePreview = () => (
           <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-wm-bg/80 via-transparent to-transparent" />
           <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-auto">
             <a
-              href={appendRefToUrl("https://worldmonitor.app", getRefCode())}
+              href={appendRefToUrl(DASHBOARD_URL, getRefCode())}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 bg-wm-green text-wm-bg px-6 py-3 rounded-sm font-mono text-sm uppercase tracking-wider font-bold hover:bg-green-400 transition-colors"
@@ -1247,13 +1252,10 @@ const EnterprisePage = () => (
           </div>
         </div>
         <div className="flex items-center gap-6">
-          <a href="/" className="hover:text-wm-text transition-colors">Dashboard</a>
+          <a href={DASHBOARD_PATH} className="hover:text-wm-text transition-colors">Dashboard</a>
           <a href="https://www.worldmonitor.app/blog/" className="hover:text-wm-text transition-colors">Blog</a>
           <a href="https://www.worldmonitor.app/docs" className="hover:text-wm-text transition-colors">Docs</a>
           <a href="https://status.worldmonitor.app/" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">Status</a>
-          <a href="https://github.com/koala73/worldmonitor" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">GitHub</a>
-          <a href="https://discord.gg/re63kWKxaz" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">Discord</a>
-          <a href="https://x.com/worldmonitorai" target="_blank" rel="noreferrer" className="hover:text-wm-text transition-colors">X</a>
         </div>
         <span className="text-[10px] opacity-40 mt-4 md:mt-0">&copy; {new Date().getFullYear()} WorldMonitor</span>
       </div>
@@ -1281,51 +1283,11 @@ export default function App() {
   //      extended-unlock banner from PR-4, instead of rendering a
   //      default dashboard with no context.
   useEffect(() => {
-    initOverlay(() => {
-      const banner = document.createElement('div');
-      Object.assign(banner.style, {
-        position: 'fixed', top: '0', left: '0', right: '0', zIndex: '99999',
-        padding: '14px 20px', background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-        color: '#fff', fontWeight: '600', fontSize: '14px', textAlign: 'center',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.3)', transition: 'opacity 0.4s ease, transform 0.4s ease',
-        transform: 'translateY(-100%)', opacity: '0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px',
-      });
-
-      const target = 'https://worldmonitor.app/?wm_checkout=success';
-      let navigated = false;
-      const goToDashboard = () => {
-        if (navigated) return;
-        navigated = true;
-        window.location.href = target;
-      };
-
-      const message = document.createElement('span');
-      message.textContent = 'Payment received! Unlocking your premium features…';
-
-      const cta = document.createElement('button');
-      cta.type = 'button';
-      cta.textContent = 'Go to dashboard now →';
-      Object.assign(cta.style, {
-        background: '#ffffff',
-        color: '#16a34a',
-        border: 'none',
-        borderRadius: '4px',
-        padding: '6px 12px',
-        fontSize: '12px',
-        fontWeight: '700',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      });
-      cta.addEventListener('click', goToDashboard);
-
-      banner.appendChild(message);
-      banner.appendChild(cta);
-      document.body.appendChild(banner);
-      requestAnimationFrame(() => { banner.style.transform = 'translateY(0)'; banner.style.opacity = '1'; });
-
-      setTimeout(goToDashboard, 1500);
-    });
+    // #4449: the Dodo overlay is no longer used — checkout redirects top-level
+    // to the hosted page (see startCheckout). We no longer call initOverlay(),
+    // which dynamically imported the heavy Dodo overlay SDK on /pro mount and
+    // registered a success banner that can never fire (after payment the buyer
+    // lands on the dashboard, not /pro — handleCheckoutReturn owns that UX).
     // Consume checkout intent from URL (set by afterSignInUrl on the
     // checkout-initiated sign-in). No-op for any other /pro entry
     // point; strips params before any await so a reload can't re-fire.

@@ -216,3 +216,45 @@ describe('Panel base class — unlockPanel restores pre-lock content', () => {
     );
   });
 });
+
+describe('Panel base class — inactive visual state', () => {
+  it('dims errors and restores full emphasis when loading resumes', () => {
+    const panel = harness.createPanel();
+    const root = panel.getElement();
+
+    panel.showError('Temporarily unavailable');
+    assert.equal(root.classList.contains('panel-is-inactive'), true);
+    assert.equal(root.dataset.panelState, 'unavailable');
+
+    panel.showLoading();
+    assert.equal(root.classList.contains('panel-is-inactive'), false);
+    assert.equal(root.dataset.panelState, undefined);
+  });
+
+  it('dims unavailable data badges and restores live panels', () => {
+    const panel = harness.createFreshnessPanel();
+    const root = panel.getElement();
+
+    panel.publicDataBadge('unavailable');
+    assert.equal(root.classList.contains('panel-is-inactive'), true);
+    assert.equal(root.dataset.panelState, 'unavailable');
+
+    panel.publicDataBadge('live');
+    assert.equal(root.classList.contains('panel-is-inactive'), false);
+    assert.equal(root.dataset.panelState, undefined);
+  });
+
+  it('dims access-locked panels while leaving their CTA in the DOM', () => {
+    const panel = harness.createPanel();
+    const root = panel.getElement();
+
+    panel.showGatedCta('anonymous', () => {});
+    assert.equal(root.classList.contains('panel-is-inactive'), true);
+    assert.equal(root.dataset.panelState, 'locked');
+    assert.ok(root.querySelector('.panel-locked-cta'));
+
+    panel.unlockPanel();
+    assert.equal(root.classList.contains('panel-is-inactive'), false);
+    assert.equal(root.dataset.panelState, undefined);
+  });
+});

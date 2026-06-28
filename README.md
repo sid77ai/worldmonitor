@@ -73,7 +73,10 @@ npm install
 npm run dev
 ```
 
-Open [localhost:5173](http://localhost:5173). The app runs with no environment variables.
+Open [localhost:3000](http://localhost:3000). The app runs with no environment variables.
+The default development server proxies application API requests to the deployed WorldMonitor API, so Docker and Redis are not required.
+
+Use `npm run dev:api` only when developing server handlers locally. That mode runs the server handler pipeline and may require the relevant API keys and Redis configuration.
 
 Feature-specific data sources may require credentials — for example, the flight-price command (`fly LON DXB`) needs `TRAVELPAYOUTS_API_TOKEN` to return live quotes; without it the command shows a "credentials required" message rather than synthetic data. See `.env.example` for the full list.
 

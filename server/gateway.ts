@@ -330,6 +330,11 @@ import { PREMIUM_RPC_PATHS } from '../src/shared/premium-paths';
 
 export const PUBLIC_NO_AUTH_RPC_PATHS = new Set<string>([
   '/api/conflict/v1/list-acled-events',
+  // The public dashboard probes this route before enabling Ship Traffic. The
+  // response is read-only, bbox-limited, rate-limited, and CDN cached; keeping
+  // it behind session auth makes the health gate permanently fail for anonymous
+  // visitors and causes the public variant smoke test to emit a 401.
+  '/api/maritime/v1/get-vessel-snapshot',
   '/api/natural/v1/list-natural-events',
   '/api/resilience/v1/get-runtime-manifest',
   '/api/seismology/v1/list-earthquakes',

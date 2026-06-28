@@ -319,12 +319,20 @@ The dashboard works with free tiers but may have gaps in coverage or update freq
 
 ### AIS Coverage Bias
 
-The Ships layer uses terrestrial AIS receivers via [AISStream.io](https://aisstream.io). This creates a **geographic bias**:
+The Ships layer uses [AISStream.io](https://aisstream.io) for live global
+terrestrial coverage and can optionally enrich Norwegian waters with
+[BarentsWatch](https://developer.barentswatch.no/docs/AIS/live-ais-api/), which
+includes terrestrial, offshore, and Norwegian satellite receivers. With a free
+Global Fishing Watch token it also displays delayed global AIS-presence and
+unmatched Sentinel-1 SAR detections.
 
 - **Strong coverage**: European waters, Atlantic, major ports
 - **Weak coverage**: Middle East, open ocean, remote regions
 
-Terrestrial receivers only detect vessels within ~50km of shore. Satellite AIS (commercial) provides true global coverage but is not included in this free implementation.
+Terrestrial receivers only detect vessels near receiving stations. BarentsWatch
+improves the Nordic region, while Global Fishing Watch supplies delayed global
+context; genuinely low-latency global satellite AIS still requires a commercial
+provider.
 
 ### Blocked Data Sources
 

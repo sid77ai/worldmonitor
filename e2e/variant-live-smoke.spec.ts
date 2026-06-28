@@ -33,6 +33,10 @@ const AUTH_OR_PREMIUM_401_PREFIXES = [
   '/api/customer-portal',
   '/api/latest-brief',
   '/api/local-',
+  // AIS health probing is intentionally fail-closed. Deployments that have not
+  // exposed/configured the relay snapshot yet may return 401; the UI must keep
+  // Ship Traffic disabled rather than treating this as a boot regression.
+  '/api/maritime/v1/get-vessel-snapshot',
   '/api/me/',
   '/api/notification-channels',
   '/api/oauth/',

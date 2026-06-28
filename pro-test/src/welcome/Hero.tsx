@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
-import { ArrowRight, Github } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { WiredBadge } from '../components/WiredBadge';
 import { t } from '../i18n';
+import { DASHBOARD_PATH } from '../routes';
 import dashboardScreenshot from '../assets/worldmonitor-7-mar-2026.jpg';
 
 const HERO_PROOF_STATS = [
@@ -13,7 +14,7 @@ const HERO_PROOF_STATS = [
 
 const HeroProofRail = () => (
   <motion.div
-    initial={{ opacity: 0, y: 16 }}
+    initial={false}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.6, delay: 0.28 }}
     className="mt-8 mx-auto grid w-full max-w-[22rem] sm:max-w-3xl grid-cols-2 sm:grid-cols-4 overflow-hidden rounded-sm border border-wm-border bg-wm-card/70 text-left backdrop-blur-sm"
@@ -32,14 +33,14 @@ const HeroProofRail = () => (
 
 const ConsoleFrame = () => (
   <motion.div
-    initial={{ opacity: 0, y: 32 }}
+    initial={false}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.7, delay: 0.35 }}
     className="relative max-w-5xl mx-auto mt-10 sm:mt-14"
   >
     <div className="absolute -inset-8 bg-wm-green/5 blur-[60px] rounded-full pointer-events-none" aria-hidden="true" />
     <a
-      href="/?ref=welcome-plate"
+      href={`${DASHBOARD_PATH}?ref=welcome-plate`}
       className="relative block border border-wm-border rounded-md overflow-hidden border-glow bg-wm-card hover:border-wm-green/40 transition-colors"
     >
       <div className="flex items-center justify-between gap-3 px-3 sm:px-4 h-9 border-b border-wm-border bg-wm-bg/80 font-mono text-[10px] uppercase tracking-widest text-wm-muted">
@@ -73,7 +74,7 @@ export const Hero = () => (
   <section className="pt-28 sm:pt-32 pb-16 px-4 sm:px-6 relative overflow-hidden">
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(74,222,128,0.10)_0%,transparent_55%)] pointer-events-none" aria-hidden="true" />
     <div className="max-w-5xl mx-auto text-center relative z-10">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+      <motion.div initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
         <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[4px] text-wm-green mb-5 px-3 py-1.5 rounded-full border border-wm-green/30 bg-wm-green/10 leading-relaxed">
           <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-wm-green opacity-60" />
@@ -92,13 +93,13 @@ export const Hero = () => (
       </motion.div>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.15 }}
         className="mt-9 mx-auto flex max-w-[22rem] sm:max-w-none flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4"
       >
         <a
-          href="/?ref=welcome-hero"
+          href={`${DASHBOARD_PATH}?ref=welcome-hero`}
           className="w-full sm:w-auto justify-center bg-wm-green text-wm-bg px-5 sm:px-8 py-3.5 rounded-sm font-mono text-sm uppercase tracking-wide sm:tracking-wider font-bold hover:bg-green-400 transition-colors inline-flex items-center gap-2"
         >
           {t('welcome.hero.ctaPrimary')} <ArrowRight className="w-4 h-4" aria-hidden="true" />
@@ -111,7 +112,7 @@ export const Hero = () => (
         </a>
       </motion.div>
       <motion.div
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, delay: 0.25 }}
         className="mt-3 font-mono text-[11px] uppercase tracking-widest text-wm-muted"
@@ -121,22 +122,14 @@ export const Hero = () => (
       <HeroProofRail />
 
       <motion.div
-        initial={{ opacity: 0 }}
+        initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, delay: 0.3 }}
         className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs font-mono text-wm-muted"
       >
         <WiredBadge />
         <span>{t('welcome.hero.trustUsers')}</span>
-        <span aria-hidden="true" className="text-wm-border">|</span>
-        <a
-          href="https://github.com/koala73/worldmonitor"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 hover:text-wm-text transition-colors"
-        >
-          <Github className="w-3.5 h-3.5" aria-hidden="true" /> {t('welcome.hero.trustOpenSource')}
-        </a>
+        <span>{t('welcome.hero.trustOpenSource')}</span>
       </motion.div>
     </div>
     <ConsoleFrame />

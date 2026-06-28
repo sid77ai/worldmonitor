@@ -26,10 +26,12 @@ export class SanctionsPressurePanel extends Panel {
 
   private render(): void {
     if (!this.data || this.data.totalCount === 0) {
+      this.setDataBadge('unavailable');
       this.setSafeContent(unsafeRawHtml(`<div class="economic-empty">${escapeHtml(t('components.sanctionsPressure.unavailable'))}</div>`, 'legacy Panel.setContent() migration'));
       return;
     }
 
+    this.clearDataBadge();
     const data = this.data;
 
     const summaryHtml = `

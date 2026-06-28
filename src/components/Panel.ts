@@ -198,6 +198,9 @@ export class Panel {
   private _collapseBtn: HTMLButtonElement | null = null;
   private viewportObserver: IntersectionObserver | null = null;
   private viewportObserverRegistered = false;
+  private connectedCallbacks: Array<() => void> = [];
+  private connectedFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -658,11 +661,24 @@ export class Panel {
     this.statusBadgeEl.textContent = detail ? `${labels[state]} · ${detail}` : labels[state];
     this.statusBadgeEl.className = `panel-data-badge ${state}`;
     this.statusBadgeEl.style.display = 'inline-flex';
+    this.syncOperationalState();
   }
 
   protected clearDataBadge(): void {
     if (!this.statusBadgeEl) return;
     this.statusBadgeEl.style.display = 'none';
+    this.syncOperationalState();
+  }
+
+  private syncOperationalState(): void {
+    const hasUnavailableBadge = this.statusBadgeEl?.style.display !== 'none'
+      && this.statusBadgeEl?.classList.contains('unavailable');
+    const hasError = this.header.classList.contains('panel-header-error');
+    const state = this._locked ? 'locked' : hasError || hasUnavailableBadge ? 'unavailable' : null;
+
+    this.element.classList.toggle('panel-is-inactive', state !== null);
+    if (state) this.element.dataset.panelState = state;
+    else delete this.element.dataset.panelState;
   }
 
   private updateFreshnessBadge(summary: PanelFreshnessSummary | null = dataFreshness.getPanelFreshness(this.panelId)): void {
@@ -735,6 +751,73 @@ export class Panel {
 
   public getElement(): HTMLElement {
     return this.element;
+  }
+
+  /**
+   * True when this panel can host live media right now: attached, enabled (not hidden via the
+   * disable path), and expanded (not collapsed). The play-all cascade gates on this so a
+   * collapsed or disabled panel never creates/queues media work inside a hidden content area.
+   */
+  public canHostLiveMedia(): boolean {
+    return this.element.isConnected
+      && !this.element.classList.contains('hidden')
+      && !this._collapsed;
+  }
+
+  protected runWhenConnected(callback: () => void): boolean {
+    if (this.destroyed) return false;
+    if (this.element.isConnected) {
+      callback();
+      return true;
+    }
+
+    this.connectedCallbacks.push(callback);
+    this.scheduleConnectedFallbackIfNeeded();
+    return false;
+  }
+
+  public notifyConnected(): void {
+    this.flushConnectedCallbacks();
+  }
+
+  private scheduleConnectedFallbackIfNeeded(): void {
+    // Modern dashboard mounts call notifyConnected() from panel-layout. The timer is
+    // only for old/no-MutationObserver environments where that signal may not exist.
+    if (this.connectedFallbackTimer !== null || typeof MutationObserver !== 'undefined') return;
+    this.connectedFallbackTimer = globalThis.setTimeout(() => {
+      this.connectedFallbackTimer = null;
+      if (this.destroyed || this.connectedCallbacks.length === 0) return;
+      if (this.element.isConnected) {
+        this.flushConnectedCallbacks();
+        return;
+      }
+      this.scheduleConnectedFallbackIfNeeded();
+    }, 50);
+  }
+
+  private flushConnectedCallbacks(): void {
+    if (this.destroyed || !this.element.isConnected || this.connectedCallbacks.length === 0) return;
+    const callbacks = this.connectedCallbacks.splice(0);
+    if (this.connectedFallbackTimer !== null) {
+      clearTimeout(this.connectedFallbackTimer);
+      this.connectedFallbackTimer = null;
+    }
+
+    const errors: unknown[] = [];
+    for (const cb of callbacks) {
+      try {
+        cb();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length === 1) {
+      globalThis.setTimeout(() => { throw errors[0]; }, 0);
+    } else if (errors.length > 1) {
+      const error = new Error('Panel connected callbacks failed') as Error & { errors?: unknown[] };
+      error.errors = errors;
+      globalThis.setTimeout(() => { throw error; }, 0);
+    }
   }
 
   /**
@@ -870,6 +953,7 @@ export class Panel {
       (child as HTMLElement).style.display = 'none';
     }
     this.element.classList.add('panel-is-locked');
+    this.syncOperationalState();
 
     const iconEl = h('div', { className: 'panel-locked-icon' });
     setTrustedHtml(iconEl, trustedHtml(lockSvg, 'legacy direct innerHTML migration'));
@@ -932,6 +1016,7 @@ export class Panel {
       (child as HTMLElement).style.display = 'none';
     }
     this.element.classList.add('panel-is-locked');
+    this.syncOperationalState();
 
     const iconEl = h('div', { className: 'panel-locked-icon' });
     setTrustedHtml(iconEl, trustedHtml(entry.icon, 'legacy direct innerHTML migration'));
@@ -964,6 +1049,7 @@ export class Panel {
     } else {
       replaceChildren(this.content);
     }
+    this.syncOperationalState();
   }
 
   // Capture this.content's current child nodes so unlockPanel can put them
@@ -1032,6 +1118,7 @@ export class Panel {
   }
 
   public showConfigError(message: string): void {
+    this.setErrorState(true);
     const msgEl = h('div', { className: 'config-error-message' }, message);
     if (isDesktopRuntime()) {
       msgEl.appendChild(
@@ -1064,6 +1151,7 @@ export class Panel {
     } else {
       this.header.removeAttribute('title');
     }
+    this.syncOperationalState();
   }
 
   public setSafeContent(html: SafeHtml): void {
@@ -1192,9 +1280,15 @@ export class Panel {
   }
 
   public destroy(): void {
+    this.destroyed = true;
     this.abortController.abort();
     this.clearRetryCountdown();
     this.unobserveViewport();
+    if (this.connectedFallbackTimer !== null) {
+      clearTimeout(this.connectedFallbackTimer);
+      this.connectedFallbackTimer = null;
+    }
+    this.connectedCallbacks = [];
     if (this.freshnessUnsubscribe) {
       this.freshnessUnsubscribe();
       this.freshnessUnsubscribe = null;

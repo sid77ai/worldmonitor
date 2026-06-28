@@ -45,12 +45,16 @@ console.log(`[Relay] Heap limit: ${(_heapStats.heap_size_limit / 1024 / 1024).to
 
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const API_KEY = process.env.AISSTREAM_API_KEY || process.env.VITE_AISSTREAM_API_KEY;
+const BARENTSWATCH_CLIENT_ID = process.env.BARENTSWATCH_CLIENT_ID || '';
+const BARENTSWATCH_CLIENT_SECRET = process.env.BARENTSWATCH_CLIENT_SECRET || '';
+const BARENTSWATCH_ENABLED = !!(BARENTSWATCH_CLIENT_ID && BARENTSWATCH_CLIENT_SECRET);
 const PORT = process.env.PORT || 3004;
 
 if (!API_KEY) {
-  console.error('[Relay] Error: AISSTREAM_API_KEY environment variable not set');
-  console.error('[Relay] Get a free key at https://aisstream.io');
-  process.exit(1);
+  console.warn('[Relay] AISStream disabled: AISSTREAM_API_KEY is not set');
+}
+if (!BARENTSWATCH_ENABLED) {
+  console.info('[Relay] BarentsWatch AIS disabled: client credentials are not set');
 }
 
 const MAX_WS_CLIENTS = 10; // Cap WS clients — app uses HTTP snapshots, not WS
@@ -2454,13 +2458,27 @@ async function fetchCryptoCoinPaprika() {
   }));
 }
 
+// CoinGecko's free Demo and paid Pro plans share the `CG-` key prefix but use
+// different hosts + auth headers (a Demo key on the Pro host 400s). Resolve the
+// tier explicitly by which env var is set — Pro wins, else Demo, else keyless.
+// Mirrors scripts/_seed-utils.mjs `coingeckoEndpoint()`; this relay is CommonJS
+// and cannot import the .mjs helper, so the logic is duplicated.
+function coingeckoEndpoint() {
+  const proKey = process.env.COINGECKO_API_KEY;
+  const demoKey = process.env.COINGECKO_DEMO_API_KEY;
+  const headers = { Accept: 'application/json' };
+  if (proKey) {
+    headers['x-cg-pro-api-key'] = proKey;
+    return { base: 'https://pro-api.coingecko.com/api/v3', headers };
+  }
+  if (demoKey) headers['x-cg-demo-api-key'] = demoKey;
+  return { base: 'https://api.coingecko.com/api/v3', headers };
+}
+
 async function seedCryptoQuotes() {
   let data;
   try {
-    const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
-    const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    const { base, headers } = coingeckoEndpoint();
     const url = `${base}/coins/markets?vs_currency=usd&ids=${CRYPTO_IDS.join(',')}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -2517,10 +2535,7 @@ async function fetchStablecoinCoinPaprika() {
 async function seedStablecoinMarkets() {
   let data;
   try {
-    const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
-    const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    const { base, headers } = coingeckoEndpoint();
     const url = `${base}/coins/markets?vs_currency=usd&ids=${STABLECOIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=7d`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -2553,10 +2568,7 @@ async function seedCryptoSectors() {
   const allIds = [...new Set(SECTORS_LIST.flatMap((s) => s.tokens))];
   let data;
   try {
-    const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
-    const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    const { base, headers } = coingeckoEndpoint();
     const url = `${base}/coins/markets?vs_currency=usd&ids=${allIds.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -2626,10 +2638,7 @@ async function seedTokenPanels() {
   const allIds = [...new Set([..._defiCfg.ids, ..._aiCfg.ids, ..._otherCfg.ids])];
   let data;
   try {
-    const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
-    const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    const { base, headers } = coingeckoEndpoint();
     const url = `${base}/coins/markets?vs_currency=usd&ids=${allIds.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -6490,7 +6499,7 @@ const DODO_PRODUCT_IDS = [
 ];
 
 const DODO_TIER_CONFIG = {
-  free: { name: 'Free', description: 'Get started with the essentials', features: ['Core dashboard panels', 'Global news feed', 'Earthquake & weather alerts', 'Basic map view'], cta: 'Get Started', href: 'https://worldmonitor.app', highlighted: false },
+  free: { name: 'Free', description: 'Get started with the essentials', features: ['Core dashboard panels', 'Global news feed', 'Earthquake & weather alerts', 'Basic map view'], cta: 'Get Started', href: 'https://worldmonitor.app/dashboard', highlighted: false },
   pro: { name: 'Pro', description: 'Full intelligence dashboard', features: ['Everything in Free', 'AI stock analysis & backtesting', 'Daily market briefs', 'Military & geopolitical tracking', 'Custom widget builder', 'MCP data connectors', 'Priority data refresh'], highlighted: true },
   api_starter: { name: 'API', description: 'Programmatic access to intelligence data', features: ['REST API access', 'Real-time data streams', '1,000 requests/day', 'Webhook notifications', 'Custom data exports'], highlighted: false },
   enterprise: { name: 'Enterprise', description: 'Custom solutions for organizations', features: ['Everything in Pro + API', 'Unlimited API requests', 'Dedicated support', 'Custom integrations', 'SLA guarantee', 'On-premise option'], cta: 'Contact Sales', href: 'mailto:enterprise@worldmonitor.app', highlighted: false },
@@ -6941,6 +6950,122 @@ let lastSnapshotBrotli = null;     // cached brotli buffer (no candidates)
 let lastSnapshotWithCandJson = null;
 let lastSnapshotWithCandGzip = null;
 let lastSnapshotWithCandBrotli = null;
+let barentsWatchToken = '';
+let barentsWatchTokenExpiresAt = 0;
+let barentsWatchLastSuccessAt = 0;
+let barentsWatchLastSince = 0;
+let barentsWatchMessages = 0;
+const BARENTSWATCH_POLL_INTERVAL_MS = Math.max(60_000, Number(process.env.BARENTSWATCH_POLL_INTERVAL_MS || 120_000));
+const BARENTSWATCH_FRESH_MS = BARENTSWATCH_POLL_INTERVAL_MS * 3;
+
+function isAisSourceConnected() {
+  return upstreamSocket?.readyState === WebSocket.OPEN
+    || (BARENTSWATCH_ENABLED && Date.now() - barentsWatchLastSuccessAt < BARENTSWATCH_FRESH_MS);
+}
+
+async function getBarentsWatchToken() {
+  if (!BARENTSWATCH_ENABLED) return '';
+  if (barentsWatchToken && Date.now() < barentsWatchTokenExpiresAt - 60_000) return barentsWatchToken;
+  const body = new URLSearchParams({
+    client_id: BARENTSWATCH_CLIENT_ID,
+    client_secret: BARENTSWATCH_CLIENT_SECRET,
+    scope: 'ais',
+    grant_type: 'client_credentials',
+  });
+  const response = await fetch('https://id.barentswatch.no/connect/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'WorldMonitor/2.8',
+    },
+    body,
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`token HTTP ${response.status}`);
+  const data = await response.json();
+  if (!data?.access_token) throw new Error('token missing access_token');
+  barentsWatchToken = data.access_token;
+  barentsWatchTokenExpiresAt = Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000;
+  return barentsWatchToken;
+}
+
+async function pollBarentsWatch() {
+  if (!BARENTSWATCH_ENABLED) return;
+  try {
+    const token = await getBarentsWatchToken();
+    const now = Date.now();
+    const since = new Date(barentsWatchLastSince || now - 5 * 60_000).toISOString();
+    const params = new URLSearchParams({ since, modelType: 'Full', modelFormat: 'Json' });
+    const response = await fetch(`https://live.ais.barentswatch.no/live/v1/latest/combined?${params}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'User-Agent': 'WorldMonitor/2.8',
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      if (response.status === 401) {
+        barentsWatchToken = '';
+        barentsWatchTokenExpiresAt = 0;
+      }
+      throw new Error(`positions HTTP ${response.status}`);
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows)) throw new Error('positions payload is not an array');
+
+    let accepted = 0;
+    for (const row of rows) {
+      const mmsi = String(row?.mmsi || '');
+      const lat = Number(row?.latitude);
+      const lon = Number(row?.longitude);
+      const msgTs = Date.parse(row?.msgtime || '');
+      if (!mmsi || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (!Number.isFinite(msgTs) || now - msgTs > 15 * 60_000 || msgTs > now + 60_000) continue;
+
+      // Prefer the lower-latency AISStream observation when it has updated
+      // this MMSI recently; BarentsWatch fills Nordic and satellite gaps.
+      const current = vessels.get(mmsi);
+      if (current && now - current.timestamp < 90_000) continue;
+
+      const existingMeta = vesselMeta.get(mmsi) || {};
+      const shipType = Number(row.shipType);
+      vesselMeta.set(mmsi, {
+        ...existingMeta,
+        shipType: Number.isFinite(shipType) && shipType > 0 ? shipType : existingMeta.shipType,
+        shipName: String(row.name || existingMeta.shipName || '').trim(),
+        destination: String(row.destination || existingMeta.destination || '').trim(),
+        lastSeen: now,
+      });
+      processPositionReportForSnapshot({
+        MetaData: { MMSI: mmsi, ShipName: row.name || '', ShipType: shipType },
+        Message: {
+          PositionReport: {
+            Latitude: lat,
+            Longitude: lon,
+            TrueHeading: Number(row.trueHeading),
+            Sog: Number(row.speedOverGround),
+            Cog: Number(row.courseOverGround),
+          },
+        },
+      });
+      accepted++;
+    }
+    messageCount += accepted;
+    barentsWatchMessages += accepted;
+    barentsWatchLastSuccessAt = now;
+    barentsWatchLastSince = now - 30_000;
+    console.log(`[BarentsWatch] accepted ${accepted}/${rows.length} positions`);
+  } catch (error) {
+    console.warn(`[BarentsWatch] poll failed: ${error.message}`);
+  }
+}
+
+function startBarentsWatchPollLoop() {
+  if (!BARENTSWATCH_ENABLED) return;
+  void pollBarentsWatch();
+  setInterval(pollBarentsWatch, BARENTSWATCH_POLL_INTERVAL_MS).unref?.();
+}
 
 // Chokepoint spatial index: bucket vessels into grid cells at ingest time
 // instead of O(chokepoints * vessels) on every snapshot
@@ -7182,8 +7307,30 @@ function processShipStaticDataForMeta(data) {
   vesselMeta.set(mmsi, {
     shipType,
     shipName: (sd.Name || meta.ShipName || '').trim(),
+    destination: (sd.Destination || '').trim(),
+    eta: aisEtaToEpochMs(sd.Eta),
     lastSeen: Date.now(),
   });
+}
+
+// AIS Type 5 ETA is a partial date {Month, Day, Hour, Minute} with NO year
+// (and 0/24/60 sentinels mean "not available"). Resolve against the current
+// year, rolling forward a year when the resulting date is far in the past so a
+// December-reported ETA read in January doesn't look 11 months overdue.
+function aisEtaToEpochMs(eta) {
+  if (!eta || typeof eta !== 'object') return 0;
+  const month = Number(eta.Month);
+  const day = Number(eta.Day);
+  const hour = Number(eta.Hour);
+  const minute = Number(eta.Minute);
+  if (!(month >= 1 && month <= 12) || !(day >= 1 && day <= 31)) return 0;
+  if (!(hour >= 0 && hour <= 23) || !(minute >= 0 && minute <= 59)) return 0;
+  const now = new Date();
+  let ts = Date.UTC(now.getUTCFullYear(), month - 1, day, hour, minute);
+  if (ts < now.getTime() - 30 * 24 * 3600 * 1000) {
+    ts = Date.UTC(now.getUTCFullYear() + 1, month - 1, day, hour, minute);
+  }
+  return ts;
 }
 
 function processPositionReportForSnapshot(data) {
@@ -7560,6 +7707,68 @@ function getTankerReportsSnapshot(bbox) {
   return arr.slice(0, MAX_TANKER_REPORTS_PER_RESPONSE);
 }
 
+const MAX_COMMERCIAL_VESSELS_PER_RESPONSE = 200;
+
+function normalizeVesselQuery(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((term) => term.trim().toUpperCase())
+    .filter((term) => term.length >= 3)
+    .slice(0, 12);
+}
+
+function inferCommercialOperator(name) {
+  const n = String(name || '').toUpperCase();
+  if (n.includes('MAERSK')) return 'Maersk';
+  if (n.includes('HAPAG') || n.includes('LLOYD')) return 'Hapag-Lloyd';
+  if (/\bMSC\b/.test(n)) return 'MSC';
+  if (n.includes('CMA CGM')) return 'CMA CGM';
+  if (n.includes('COSCO')) return 'COSCO';
+  if (n.includes('EVERGREEN')) return 'Evergreen';
+  if (n.includes('YANG MING')) return 'Yang Ming';
+  if (/\bONE\b/.test(n) || n.includes('OCEAN NETWORK EXPRESS')) return 'ONE';
+  return '';
+}
+
+function commercialNameMatchesTerm(name, term) {
+  const n = String(name || '').toUpperCase();
+  const t = String(term || '').toUpperCase();
+  if (!n || !t) return false;
+  if (t.length <= 3) {
+    return new RegExp(`(^|[^A-Z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z0-9]|$)`).test(n);
+  }
+  return n.includes(t);
+}
+
+function getCommercialVesselReportsSnapshot(queryTerms, limit) {
+  const terms = queryTerms.length > 0 ? queryTerms : ['MAERSK', 'HAPAG', 'LLOYD'];
+  const max = Math.max(1, Math.min(Number(limit) || 80, MAX_COMMERCIAL_VESSELS_PER_RESPONSE));
+  return Array.from(vessels.values())
+    .filter((v) => {
+      const name = String(v.name || '').toUpperCase();
+      return name && terms.some((term) => commercialNameMatchesTerm(name, term));
+    })
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, max)
+    .map((v) => {
+      const meta = vesselMeta.get(v.mmsi);
+      return {
+        mmsi: v.mmsi,
+        name: v.name || '',
+        operator: inferCommercialOperator(v.name),
+        lat: v.lat,
+        lon: v.lon,
+        shipType: Number.isFinite(Number(v.shipType)) ? Number(v.shipType) : 0,
+        heading: Number.isFinite(Number(v.heading)) ? Number(v.heading) : 0,
+        speed: Number.isFinite(Number(v.speed)) ? Number(v.speed) : 0,
+        course: Number.isFinite(Number(v.course)) ? Number(v.course) : 0,
+        timestamp: v.timestamp,
+        destination: (meta && meta.destination) || '',
+        eta: (meta && Number.isFinite(Number(meta.eta))) ? Number(meta.eta) : 0,
+      };
+    });
+}
+
 function buildSnapshot() {
   const now = Date.now();
   if (lastSnapshot && now - lastSnapshotAt < Math.floor(SNAPSHOT_INTERVAL_MS / 2)) {
@@ -7573,7 +7782,7 @@ function buildSnapshot() {
     sequence: snapshotSequence,
     timestamp: new Date(now).toISOString(),
     status: {
-      connected: upstreamSocket?.readyState === WebSocket.OPEN,
+      connected: isAisSourceConnected(),
       vessels: vessels.size,
       messages: messageCount,
       clients: clients.size,
@@ -9365,6 +9574,7 @@ const ALLOWED_ORIGINS = [
   'https://worldmonitor.app',
   'https://tech.worldmonitor.app',
   'https://finance.worldmonitor.app',
+  'http://localhost:3000',   // Codex/local dev alternate port
   'http://localhost:5173',   // Vite dev
   'http://localhost:5174',   // Vite dev alt port
   'http://localhost:4173',   // Vite preview
@@ -9474,10 +9684,19 @@ const server = http.createServer(async (req, res) => {
       clients: clients.size,
       messages: messageCount,
       droppedMessages,
-      connected: upstreamSocket?.readyState === WebSocket.OPEN,
+      connected: isAisSourceConnected(),
       upstreamPaused,
       vessels: vessels.size,
       densityZones: Array.from(densityGrid.values()).filter(c => c.vessels.size >= 2).length,
+      aisProviders: {
+        aisstream: { configured: !!API_KEY, connected: upstreamSocket?.readyState === WebSocket.OPEN },
+        barentswatch: {
+          configured: BARENTSWATCH_ENABLED,
+          connected: BARENTSWATCH_ENABLED && Date.now() - barentsWatchLastSuccessAt < BARENTSWATCH_FRESH_MS,
+          messages: barentsWatchMessages,
+          lastSuccessAt: barentsWatchLastSuccessAt ? new Date(barentsWatchLastSuccessAt).toISOString() : null,
+        },
+      },
       telegram: {
         enabled: TELEGRAM_ENABLED,
         channels: telegramState.channels?.length || 0,
@@ -9527,6 +9746,28 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
     }, JSON.stringify(getRelayRollingMetrics()));
+  } else if (pathname.startsWith('/ais/vessels')) {
+    connectUpstream();
+    buildSnapshot();
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const queryTerms = normalizeVesselQuery(url.searchParams.get('q'));
+    const limit = Number(url.searchParams.get('limit') || 80);
+    const reports = getCommercialVesselReportsSnapshot(queryTerms, limit);
+    const payload = {
+      timestamp: new Date().toISOString(),
+      query: queryTerms.length > 0 ? queryTerms : ['MAERSK', 'HAPAG', 'LLOYD'],
+      status: {
+        connected: isAisSourceConnected(),
+        vessels: vessels.size,
+        messages: messageCount,
+      },
+      vessels: reports,
+    };
+    return sendCompressed(req, res, 200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=5',
+      'CDN-Cache-Control': 'public, max-age=10',
+    }, JSON.stringify(payload));
   } else if (pathname.startsWith('/ais/snapshot')) {
     // Aggregated AIS snapshot for server-side fanout — serve pre-serialized + pre-gzipped
     connectUpstream();
@@ -11290,6 +11531,7 @@ function switchTab(btn, key) {
 // ─── End Widget Agent ────────────────────────────────────────────────────────
 
 function connectUpstream() {
+  if (!API_KEY) return;
   // Skip if already connected or connecting
   if (upstreamSocket?.readyState === WebSocket.OPEN ||
       upstreamSocket?.readyState === WebSocket.CONNECTING) return;
@@ -11401,6 +11643,7 @@ server.listen(PORT, () => {
   console.log(`[Relay] WebSocket relay on port ${PORT} (OpenSky: ${OPENSKY_PROXY_ENABLED ? 'via proxy' : 'direct'})`);
   startTelegramPollLoop();
   startOrefPollLoop();
+  startBarentsWatchPollLoop();
   startUcdpSeedLoop();
   startMarketDataSeedLoop();
   // Aviation + NOTAM seeds — standalone Railway cron — scripts/seed-aviation.mjs
